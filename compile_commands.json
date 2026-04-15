@@ -1,0 +1,26 @@
+[
+  {
+    "file": "main.cpp",
+    "arguments": [
+      "c++",
+      "-Iincludes",
+      "-Isrc/Http",
+      "-Isrc/Configs",
+      "-Isrc/Server",
+      "-Isrc/CGIs",
+      "-MMD",
+      "-MP",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-std=c++20",
+      "-Iincludes",
+      "-c",
+      "main.cpp",
+      "-o",
+      "main.o"
+    ],
+    "directory": "/home/dev/Work/webserv",
+    "output": "main.o"
+  }
+]

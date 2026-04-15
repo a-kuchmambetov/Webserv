@@ -1,0 +1,83 @@
+#pragma once
+
+#include "HttpTypes.hpp"
+
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace webserv {
+
+class HttpRequest {
+public:
+  HttpRequest() = default;
+
+  void reset() noexcept;
+  ParseOutcome append(std::string_view bytes);
+
+  [[nodiscard]] RequestParseState state() const noexcept;
+  [[nodiscard]] bool isComplete() const noexcept;
+  [[nodiscard]] bool hasError() const noexcept;
+  [[nodiscard]] int errorStatus() const noexcept;
+
+  [[nodiscard]] HttpMethod method() const noexcept;
+  [[nodiscard]] std::string_view methodText() const noexcept;
+  [[nodiscard]] std::string_view target() const noexcept;
+  [[nodiscard]] std::string_view path() const noexcept;
+  [[nodiscard]] std::string_view queryString() const noexcept;
+  [[nodiscard]] std::string_view httpVersion() const noexcept;
+
+  [[nodiscard]] const HeaderMap &headers() const noexcept;
+  [[nodiscard]] std::optional<std::string_view>
+  header(std::string_view name) const noexcept;
+  [[nodiscard]] bool hasHeader(std::string_view name) const noexcept;
+
+  [[nodiscard]] std::string_view body() const noexcept;
+  [[nodiscard]] BodyTransferMode bodyTransferMode() const noexcept;
+  [[nodiscard]] bool hasContentLength() const noexcept;
+  [[nodiscard]] std::size_t contentLength() const noexcept;
+  [[nodiscard]] bool isChunked() const noexcept;
+  [[nodiscard]] bool keepAliveRequested() const noexcept;
+  [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
+
+  void setMaxBodySize(std::size_t bytes) noexcept;
+
+private:
+  bool parseStartLine();
+  bool parseHeaders();
+  bool parseBody();
+  bool parseContentLengthBody();
+  bool parseChunkedBody();
+  void parseTarget();
+  void setError(int statusCode) noexcept;
+  void storeHeader(std::string key, std::string value);
+
+  [[nodiscard]] static std::string decodeUriComponent(std::string_view value);
+  [[nodiscard]] static std::string normalizePath(std::string_view path);
+
+  RequestParseState _state{RequestParseState::StartLine};
+  int _errorStatus{0};
+
+  std::string _rawBuffer;
+  std::size_t _headerEndPos{std::string::npos};
+  std::size_t _bodyBytesExpected{0};
+  std::size_t _bodyBytesReceived{0};
+  std::size_t _currentChunkSize{0};
+  std::size_t _maxBodySize{0};
+
+  std::string _methodText;
+  HttpMethod _method{HttpMethod::Unknown};
+  std::string _target;
+  std::string _path;
+  std::string _queryString;
+  std::string _httpVersion;
+
+  HeaderMap _headers;
+  std::string _body;
+
+  BodyTransferMode _bodyMode{BodyTransferMode::None};
+  bool _keepAlive{false};
+};
+
+} // namespace webserv
