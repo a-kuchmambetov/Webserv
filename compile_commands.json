@@ -2,12 +2,13 @@
   {
     "file": "main.cpp",
     "arguments": [
-      "c++",
+      "/usr/bin/c++",
       "-Iincludes",
       "-Isrc/Http",
       "-Isrc/Configs",
       "-Isrc/Server",
       "-Isrc/CGIs",
+      "-Isrc/Shared",
       "-MMD",
       "-MP",
       "-Wall",

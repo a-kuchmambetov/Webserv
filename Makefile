@@ -2,7 +2,7 @@ NAME = webserv
 
 CXX = c++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++20 -Iincludes
-CPPFLAGS = -Iincludes -Isrc/Http -Isrc/Configs -Isrc/Server -Isrc/CGIs -MMD -MP
+CPPFLAGS = -Iincludes -Isrc/Http -Isrc/Configs -Isrc/Server -Isrc/CGIs -Isrc/Shared -MMD -MP
 
 SRCS = main.cpp
 OBJS = $(SRCS:.cpp=.o)
