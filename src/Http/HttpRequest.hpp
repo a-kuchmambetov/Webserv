@@ -40,6 +40,8 @@ public:
   [[nodiscard]] bool isChunked() const noexcept;
   [[nodiscard]] bool keepAliveRequested() const noexcept;
   [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
+  static bool isHex(char c);
+  bool isValidPercent(std::string_view value);
 
   void setMaxBodySize(std::size_t bytes) noexcept;
 

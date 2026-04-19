@@ -1,6 +1,10 @@
 #include "HttpRequest.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <string_view>
 
 namespace webserv {
 
@@ -10,8 +14,11 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
   while (69) {
     switch (_state) {
     case RequestParseState::StartLine:
-      if (!parseStartLine()) // receives false in both needMoreData and fail situation(not good)
+      if (!parseStartLine()) {
+        if (_state == RequestParseState::Error)
+          return ParseOutcome::Error;
         return ParseOutcome::NeedMoreData;
+      }
       break;
     case RequestParseState::Headers:
       if (!parseHeaders())
@@ -63,8 +70,8 @@ bool HttpRequest::parseStartLine() {
     return (setError(400), false);
 
   // space pos
-  std::size_t sp1 = line.find(' ');
-  std::size_t sp2 = line.find(' ', sp1 + 1);
+  std::string::size_type sp1 = line.find(' ');
+  std::string::size_type sp2 = line.find(' ', sp1 + 1);
 
   // extract parts
   _methodText = line.substr(0, sp1);
@@ -75,32 +82,110 @@ bool HttpRequest::parseStartLine() {
   _method = parseHttpMethod(_methodText);
   if (_method == HttpMethod::Unknown)
     return (setError(400), false);
-  if (_httpVersion != "HTTP/1.1")  // only 1.1 ?
+  if (_httpVersion != "HTTP/1.1") // only 1.1 ?
     return (setError(505), false);
   if (_target.empty() || _target[0] != '/')
     return (setError(400), false);
   parseTarget();
+  if(_state == RequestParseState::Error)
+    return false;
 
   _state = RequestParseState::Headers;
   return true;
 }
 
-HttpMethod parseHttpMethod(std::string_view method) noexcept{
-    if (method == "GET")
-        return HttpMethod::Get;
-    if (method == "POST")
-        return HttpMethod::Post;
-    if (method == "DELETE")
-        return HttpMethod::Delete;
-    return HttpMethod::Unknown;
+HttpMethod parseHttpMethod(std::string_view method) noexcept {
+  if (method == "GET")
+    return HttpMethod::Get;
+  if (method == "POST")
+    return HttpMethod::Post;
+  if (method == "DELETE")
+    return HttpMethod::Delete;
+  return HttpMethod::Unknown;
 }
 
-void HttpRequest::setError(int statusCode) noexcept{
-    _errorStatus = statusCode;
-    _state = RequestParseState::Error;
+void HttpRequest::setError(int statusCode) noexcept {
+  _errorStatus = statusCode;
+  _state = RequestParseState::Error;
 }
 
+void HttpRequest::parseTarget() {
+  std::string::size_type qmark = _target.find('?');
+  std::string rawPath;
+  std::string rawQuery;
 
+  if (qmark == std::string::npos) {
+    rawPath = _target;
+    rawQuery = "";
+  } else {
+    rawPath = _target.substr(0, qmark);
+    rawQuery = _target.substr(qmark + 1);
+  };
 
+  if(!isValidPercent(rawPath) || !isValidPercent(rawQuery)){
+    setError(400);
+    return;
+  }
+
+  std::string decodedPath = decodeUriComponent(rawPath);
+  std::string decodedQuery = decodeUriComponent(rawQuery);
+
+  std::string normalized = normalizePath(decodedPath);
+  if (normalized.empty() || normalized[0] != '/') {
+    setError(400);
+    return;
+  }
+
+  _path = normalized;
+  _queryString = decodedQuery;
+}
+
+std::string HttpRequest::decodeUriComponent(std::string_view value) {
+  std::string res;
+  res.reserve(value.size());
+
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    char c = value[i];
+    if (c == '%') {
+      char hex[3] = {value[i + 1], value[i + 2], 0};
+      char decoded = static_cast<char>(std::strtol(hex, NULL, 16));
+      res += decoded;
+      i += 2;
+    } else if (c == '+')
+      res += ' ';
+    else
+      res += c;
+  }
+  return res;
+}
+
+std::string HttpRequest::normalizePath(std::string_view path) {
+  std::filesystem::path p(path);
+  p = p.lexically_normal();
+
+  return p.string();
+}
+
+bool HttpRequest::isHex(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
+         (c >= 'a' && c <= 'f');
+}
+
+bool HttpRequest::isValidPercent(std::string_view value) {
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    if (value[i] == '%') {
+      if (i + 2 >= value.size())
+        return false;
+      if (!isHex(value[i + 1]) || !isHex(value[i + 2]))
+        return false;
+      char hex[3] = {value[i + 1], value[i + 2], 0};
+      char decoded = static_cast<char>(std::strtol(hex, NULL, 16));
+      if (decoded < 32 || decoded == 127)
+        return false;
+      i += 2;
+    }
+  }
+  return true;
+}
 
 } // namespace webserv
