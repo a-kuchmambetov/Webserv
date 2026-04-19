@@ -10,7 +10,7 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
   while (69) {
     switch (_state) {
     case RequestParseState::StartLine:
-      if (!parseStartLine())
+      if (!parseStartLine()) // receives false in both needMoreData and fail situation(not good)
         return ParseOutcome::NeedMoreData;
       break;
     case RequestParseState::Headers:
