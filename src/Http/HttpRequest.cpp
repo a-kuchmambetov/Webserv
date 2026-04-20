@@ -1,8 +1,10 @@
 #include "HttpRequest.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -87,7 +89,7 @@ bool HttpRequest::parseStartLine() {
   if (_target.empty() || _target[0] != '/')
     return (setError(400), false);
   parseTarget();
-  if(_state == RequestParseState::Error)
+  if (_state == RequestParseState::Error)
     return false;
 
   _state = RequestParseState::Headers;
@@ -122,7 +124,7 @@ void HttpRequest::parseTarget() {
     rawQuery = _target.substr(qmark + 1);
   };
 
-  if(!isValidPercent(rawPath) || !isValidPercent(rawQuery)){
+  if (!isValidPercent(rawPath) || !isValidPercent(rawQuery)) {
     setError(400);
     return;
   }
@@ -187,5 +189,106 @@ bool HttpRequest::isValidPercent(std::string_view value) {
   }
   return true;
 }
+
+bool HttpRequest::parseHeaders() {
+  std::size_t headerEnd = _rawBuffer.find("\r\n\r\n");
+  if (headerEnd == std::string::npos)
+    return false; // when we do not receive full header
+  std::string headersSection = _rawBuffer.substr(0, headerEnd);
+  _rawBuffer.erase(0, headerEnd + 4);
+
+  std::size_t pos = 0;
+
+  while (pos < headersSection.length()) {
+    std::size_t lineEnd = headersSection.find("\r\n", pos);
+    if (lineEnd == std::string::npos)
+      lineEnd = headersSection.length();
+    std::string line = headersSection.substr(pos, lineEnd - pos);
+    pos = lineEnd + 2;
+    if (line.empty())
+      continue;
+    std::size_t colonPos = line.find(':');
+    if (colonPos == std::string::npos || colonPos == 0)
+      return (setError(400), false);
+    std::string key = line.substr(0, colonPos);
+    std::string value = line.substr(colonPos + 1);
+
+    std::size_t start = value.find_first_not_of(" \t");
+    std::size_t end = value.find_last_not_of(" \t");
+    if (start == std::string::npos)
+      value.clear();
+    else
+      value = value.substr(start, end - start + 1);
+
+    storeHeader(key, value);
+  }
+  return processHeaders();
+}
+
+// transfer-encoding -> chunked content length must me ignored
+
+bool HttpRequest::processHeaders() {
+  if (!hasHeader("Host") || header("Host")->empty())
+    return (setError(400), false);
+  _keepAlive = true;
+
+  if (hasHeader("Connection")) {
+    std::string val = std::string(header("Connection").value());
+    for (std::size_t i = 0; i < val.size(); ++i)
+      val[i] = static_cast<char>(std::tolower(val[i]));
+    if (val == "close")
+      _keepAlive = false;
+  }
+
+  if (hasHeader("Transfer-Encoding")) {
+    std::string val = std::string(header("Transfer-Encoding").value());
+    for (std::size_t i = 0; i < val.size(); ++i)
+      val[i] = static_cast<char>(std::tolower(val[i]));
+    if(val == "chunked"){
+        _bodyMode = BodyTransferMode::Chunked;
+        _state = RequestParseState::ChunkSize;
+        return true;
+    }
+    return (setError(400), false);
+  }
+
+  if (hasHeader("Content-Length")){
+    char* endptr = nullptr;
+    unsigned long length = std::strtoul(std::string(header("Content-Length").value()).c_str(), &endptr, 10);
+
+    if(*endptr != '\0')
+        return (setError(400), false);
+    if(_maxBodySize > 0 && length > _maxBodySize)
+        return (setError(413), false);
+    _bodyBytesExpected = static_cast<std::size_t>(length);
+    _bodyMode = BodyTransferMode::ContentLength;
+    if(_bodyBytesExpected == 0)
+        _state = RequestParseState::Complete;
+    else
+     _state = RequestParseState::Body;
+    return true;
+  }
+  _bodyMode = BodyTransferMode::None;
+  _state = RequestParseState::Complete;
+  return true;
+}
+
+
+void HttpRequest::storeHeader(std::string key, std::string value){
+    _headers[key] = std::move(value);
+}
+
+bool HttpRequest::hasHeader(std::string_view name) const noexcept{
+    return _headers.find(std::string(name)) != _headers.end();
+}
+
+// optional a value that may or may not exist
+std::optional<std::string_view>HttpRequest::header(std::string_view name) const noexcept{
+    auto it = _headers.find(std::string(name));
+    if(it == _headers.end())
+        return std::nullopt;
+    return std::string_view(it->second);
+}
+
 
 } // namespace webserv
