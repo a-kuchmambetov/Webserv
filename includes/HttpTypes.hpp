@@ -52,6 +52,7 @@ enum class FdType : std::uint8_t {
   Client,
   CgiStdIn,
   CgiStdOut,
+  Signal,
   Unknown,
 };
 

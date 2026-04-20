@@ -1,0 +1,80 @@
+#include "ServerConfig.hpp"
+
+#include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace webserv {
+
+const std::vector<ListenEndpoint> &
+ServerConfig::listenEndpoints() const noexcept {
+  return _listenEndpoints;
+}
+
+const std::vector<std::string> &ServerConfig::serverNames() const noexcept {
+  return _serverNames;
+}
+
+std::size_t ServerConfig::clientMaxBodySize() const noexcept {
+  return _clientMaxBodySize;
+}
+
+const std::filesystem::path &ServerConfig::root() const noexcept {
+  return _root;
+}
+
+const std::vector<std::string> &ServerConfig::indexFiles() const noexcept {
+  return _indexFiles;
+}
+
+const ErrorPageMap &ServerConfig::errorPages() const noexcept {
+  return _errorPages;
+}
+
+const std::vector<LocationConfig> &ServerConfig::locations() const noexcept {
+  return _locations;
+}
+
+void ServerConfig::setListenEndpoints(std::vector<ListenEndpoint> endpoints) {
+  _listenEndpoints = std::move(endpoints);
+}
+
+void ServerConfig::addListenEndpoint(ListenEndpoint endpoint) {
+  _listenEndpoints.push_back(std::move(endpoint));
+}
+
+void ServerConfig::setServerNames(std::vector<std::string> names) {
+  _serverNames = std::move(names);
+}
+
+void ServerConfig::setClientMaxBodySize(std::size_t bytes) noexcept {
+  _clientMaxBodySize = bytes;
+}
+
+void ServerConfig::setRoot(std::filesystem::path value) {
+  _root = std::move(value);
+}
+
+void ServerConfig::setIndexFiles(std::vector<std::string> values) {
+  _indexFiles = std::move(values);
+}
+
+void ServerConfig::setErrorPages(ErrorPageMap pages) {
+  _errorPages = std::move(pages);
+}
+
+void ServerConfig::setErrorPage(int statusCode,
+                                std::filesystem::path filePath) {
+  _errorPages[statusCode] = std::move(filePath);
+}
+
+void ServerConfig::setLocations(std::vector<LocationConfig> values) {
+  _locations = std::move(values);
+}
+
+void ServerConfig::addLocation(LocationConfig location) {
+  _locations.push_back(std::move(location));
+}
+
+} // namespace webserv

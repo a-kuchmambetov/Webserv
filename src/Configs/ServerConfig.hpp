@@ -35,15 +35,15 @@ public:
   void setLocations(std::vector<LocationConfig> values);
   void addLocation(LocationConfig location);
 
-  [[nodiscard]] const LocationConfig *
-  findBestLocation(std::string_view requestPath) const noexcept;
-  [[nodiscard]] std::optional<std::filesystem::path>
-  errorPageFor(int statusCode) const;
-  [[nodiscard]] std::size_t effectiveClientMaxBodySize(
-      const LocationConfig *location = nullptr) const noexcept;
+  // [[nodiscard]] const LocationConfig *
+  // findBestLocation(std::string_view requestPath) const noexcept;
+  // [[nodiscard]] std::optional<std::filesystem::path>
+  // errorPageFor(int statusCode) const;
+  // [[nodiscard]] std::size_t effectiveClientMaxBodySize(
+  //     const LocationConfig *location = nullptr) const noexcept;
 
-  [[nodiscard]] static std::vector<ServerConfig>
-  parseFile(const std::filesystem::path &filePath);
+  // [[nodiscard]] static std::vector<ServerConfig>
+  // parseFile(const std::filesystem::path &filePath);
 
 private:
   std::vector<ListenEndpoint> _listenEndpoints;

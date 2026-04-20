@@ -1,7 +1,7 @@
 NAME = webserv
 
 CXX = c++
-CXXFLAGS = -Wall -Wextra -Werror -Wno-error=catch-value -std=c++20
+CXXFLAGS = -Wall -Wextra -Werror -std=c++20
 CPPFLAGS = -Iincludes -Isrc/Http -Isrc/Configs -Isrc/Server -Isrc/CGIs -Isrc/Shared
 DEPFLAGS = -MMD -MP
 
