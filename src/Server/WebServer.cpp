@@ -57,7 +57,7 @@ void WebServer::run() {
         signalfd_siginfo si;
         while (read(fd, &si, sizeof(si)) == sizeof(si)) {
         }
-        std::cout << "\n[Server] : shutdown signal received\n";
+        std::cout << "\n[Server] : shutdown signal received" << std::endl;
         _shouldStop = true;
         break;
       }
@@ -81,7 +81,7 @@ void WebServer::run() {
 
           if (bytes > 0) {
             std::cout << "Received " << bytes << " bytes from client " << fd
-                      << ":\n";
+                      << ":" << std::endl;
             std::cout.write(buf, bytes);
             std::cout << '\n';
             std::cout.flush();
@@ -198,7 +198,7 @@ void WebServer::createServer(const ServerConfig &serverConfig) {
     _listeningFds.emplace(rawFd, std::move(temp));
 
     std::cout << "[Server] : socket listening on " << endpoint.host << ':'
-              << endpoint.port << "\n";
+              << endpoint.port << std::endl;
   }
 }
 
@@ -242,7 +242,7 @@ bool WebServer::acceptConnection(const Listener &listener) {
   const PeerAddress &clientPeerAdress = clientRef.connection.getPeerAddress();
 
   std::cout << "[Server] : client connected - " << clientPeerAdress.ip << ":"
-            << clientPeerAdress.port << "\n";
+            << clientPeerAdress.port << std::endl;
 
   return true;
 }
@@ -253,7 +253,7 @@ void WebServer::removeConnection(const ClientSession &clientSession) {
       clientSession.connection.getPeerAddress();
 
   std::cout << "[Server] : client disconnected - " << clientPeerAdress.ip << ":"
-            << clientPeerAdress.port << "\n";
+            << clientPeerAdress.port << std::endl;
 
   _poller.removeFd(clientFd);
   _connectionFds.erase(clientFd);

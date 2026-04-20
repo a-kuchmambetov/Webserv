@@ -9,7 +9,8 @@ int main() {
   std::vector<std::string> names;
   names.push_back("Static.local");
   serverConfig.setServerNames(names);
-  serverConfig.addListenEndpoint({"127.0.0.1", 8080});
+  // serverConfig.addListenEndpoint({"127.0.0.1", 8080});
+  serverConfig.addListenEndpoint({"0.0.0.0", 8080});
 
   std::vector<webserv::ServerConfig> servers;
   servers.push_back(serverConfig);

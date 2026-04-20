@@ -1,0 +1,10 @@
+.git
+.gitignore
+.vscode
+.local
+*.o
+*.d
+webserv
+compile_commands.json
+.codex
+.cache
