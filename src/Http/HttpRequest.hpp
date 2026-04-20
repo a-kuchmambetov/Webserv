@@ -40,6 +40,8 @@ public:
   [[nodiscard]] bool isChunked() const noexcept;
   [[nodiscard]] bool keepAliveRequested() const noexcept;
   [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
+
+
   static bool isHex(char c);
   bool isValidPercent(std::string_view value);
 
@@ -48,6 +50,7 @@ public:
 private:
   bool parseStartLine();
   bool parseHeaders();
+  bool processHeaders();
   bool parseBody();
   bool parseContentLengthBody();
   bool parseChunkedBody();
