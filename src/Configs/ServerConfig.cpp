@@ -1,4 +1,5 @@
 #include "ServerConfig.hpp"
+#include "Parser.hpp"
 
 #include <cstddef>
 #include <string>
@@ -75,6 +76,38 @@ void ServerConfig::setLocations(std::vector<LocationConfig> values) {
 
 void ServerConfig::addLocation(LocationConfig location) {
   _locations.push_back(std::move(location));
+}
+
+const LocationConfig *
+ServerConfig::findBestLocation(std::string_view requestPath) const noexcept {
+  const LocationConfig *best = nullptr;
+  std::size_t bestLen = 0;
+  for (const LocationConfig &loc : _locations) {
+    const std::string &prefix = loc.pathPrefix();
+    if (requestPath.starts_with(prefix) && prefix.size() > bestLen) {
+      bestLen = prefix.size();
+      best = &loc;
+    }
+  }
+  return best;
+}
+
+std::optional<std::filesystem::path>
+ServerConfig::errorPageFor(int statusCode) const {
+  auto it = _errorPages.find(statusCode);
+  if (it == _errorPages.end())
+    return std::nullopt;
+  return it->second;
+}
+
+std::size_t
+ServerConfig::effectiveClientMaxBodySize(const LocationConfig *location) const noexcept {
+  if (location) {
+    std::optional<std::size_t> locLimit = location->clientMaxBodySize();
+    if (locLimit.has_value())
+      return *locLimit;
+  }
+  return _clientMaxBodySize;
 }
 
 } // namespace webserv

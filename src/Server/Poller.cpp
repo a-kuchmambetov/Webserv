@@ -2,7 +2,6 @@
 #include "HttpTypes.hpp"
 #include "UniqueFd.hpp"
 
-#include <iostream>
 #include <stdexcept>
 
 namespace webserv {
@@ -11,8 +10,6 @@ Poller::Poller() : _epollFd(epoll_create1(EPOLL_CLOEXEC)), _events(64) {
   if (_epollFd.get() == -1)
     throw std::runtime_error("epoll_create1 failed");
 }
-
-Poller::~Poller() = default;
 
 void Poller::addFd(const UniqueFd &fd, const uint32_t events,
                    const FdType fdType) {

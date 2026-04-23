@@ -19,7 +19,7 @@ struct EventsData {
 class Poller {
 public:
   Poller();
-  ~Poller();
+  ~Poller() = default ;
 
   Poller(const Poller &) = delete;
   Poller &operator=(const Poller &) = delete;

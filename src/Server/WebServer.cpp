@@ -1,9 +1,12 @@
 #include "WebServer.hpp"
 #include "Connection.hpp"
 #include "HttpTypes.hpp"
+#include "Parser.hpp"
 #include "Poller.hpp"
 #include "ServerConfig.hpp"
+#include "Tokenizer.hpp"
 #include "UniqueFd.hpp"
+#include "Validator.hpp"
 
 #include <cerrno>
 #include <csignal>
@@ -25,6 +28,16 @@ namespace webserv {
 
 WebServer::WebServer(std::vector<ServerConfig> servers)
     : _servers(std::move(servers)) {}
+
+WebServer::WebServer(const std::filesystem::path &configPath) {
+  Tokenizer tokenizer;
+  tokenizer.readFile(configPath.string());
+  Parser parser(tokenizer.getTokens());
+  _servers = parser.parse();
+
+  Validator validator(_servers);
+  validator.validate();
+}
 
 WebServer::~WebServer() = default;
 
@@ -170,6 +183,8 @@ int WebServer::setupSocket(const ListenEndpoint &endpoint) const {
     throw;
   }
 
+  std::cout << "Server conf: " << endpoint.host << ":" << endpoint.port
+            << std::endl;
   if (bind(serverFd.get(), addrInfo->ai_addr, addrInfo->ai_addrlen) < 0) {
     freeaddrinfo(addrInfo);
     throw std::runtime_error("bind failed");

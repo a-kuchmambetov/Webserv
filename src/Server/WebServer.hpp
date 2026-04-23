@@ -39,7 +39,6 @@ public:
   WebServer &operator=(WebServer &&other) = delete;
 
   void run();
-
 private:
   void setNonblockingFlag(UniqueFd &fd) const;
   [[nodiscard]] int setupSocket(const ListenEndpoint &endpoint) const;

@@ -14,7 +14,7 @@ namespace webserv {
 class ServerConfig {
 public:
   ServerConfig() = default;
-
+  
   [[nodiscard]] const std::vector<ListenEndpoint> &
   listenEndpoints() const noexcept;
   [[nodiscard]] const std::vector<std::string> &serverNames() const noexcept;
@@ -35,15 +35,12 @@ public:
   void setLocations(std::vector<LocationConfig> values);
   void addLocation(LocationConfig location);
 
-  // [[nodiscard]] const LocationConfig *
-  // findBestLocation(std::string_view requestPath) const noexcept;
-  // [[nodiscard]] std::optional<std::filesystem::path>
-  // errorPageFor(int statusCode) const;
-  // [[nodiscard]] std::size_t effectiveClientMaxBodySize(
-  //     const LocationConfig *location = nullptr) const noexcept;
-
-  // [[nodiscard]] static std::vector<ServerConfig>
-  // parseFile(const std::filesystem::path &filePath);
+  [[nodiscard]] const LocationConfig *
+  findBestLocation(std::string_view requestPath) const noexcept;
+  [[nodiscard]] std::optional<std::filesystem::path>
+  errorPageFor(int statusCode) const;
+  [[nodiscard]] std::size_t effectiveClientMaxBodySize(
+      const LocationConfig *location = nullptr) const noexcept;
 
 private:
   std::vector<ListenEndpoint> _listenEndpoints;
