@@ -11,6 +11,9 @@
 
 namespace webserv {
 
+// appends data into _rawBuffer
+// state machine loop situation
+// stops when needmoredata, error, complete
 ParseOutcome HttpRequest::append(std::string_view bytes) {
   _rawBuffer.append(bytes);
 
@@ -24,16 +27,22 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
       }
       break;
     case RequestParseState::Headers:
-      if (!parseHeaders())
+      if (!parseHeaders()) {
+        if (_state == RequestParseState::Error)
+          return ParseOutcome::Error;
         return ParseOutcome::NeedMoreData;
+      }
       break;
     case RequestParseState::Body:
       if (!parseBody())
         return ParseOutcome::NeedMoreData;
       break;
-    case RequestParseState::ChunkSize: // chunkdata chunk trailer ??
-      if (!parseChunkedBody())
+    case RequestParseState::ChunkSize:
+      if (!parseChunkedBody()) {
+        if (_state == RequestParseState::Error)
+          return ParseOutcome::Error;
         return ParseOutcome::NeedMoreData;
+      }
       break;
     case RequestParseState::Complete:
       return ParseOutcome::Complete;
@@ -105,11 +114,6 @@ HttpMethod parseHttpMethod(std::string_view method) noexcept {
   if (method == "DELETE")
     return HttpMethod::Delete;
   return HttpMethod::Unknown;
-}
-
-void HttpRequest::setError(int statusCode) noexcept {
-  _errorStatus = statusCode;
-  _state = RequestParseState::Error;
 }
 
 void HttpRequest::parseTarget() {
@@ -275,18 +279,6 @@ bool HttpRequest::processHeaders() {
   return true;
 }
 
-void HttpRequest::storeHeader(std::string key, std::string value) {
-  if (key == "Content-Length" && hasHeader(key)) {
-    setError(400);
-    return;
-  }
-  _headers[std::move(key)] = std::move(value);
-}
-
-bool HttpRequest::hasHeader(std::string_view name) const noexcept {
-  return _headers.find(name) != _headers.end();
-}
-
 // optional a value that may or may not exist
 std::optional<std::string_view>
 HttpRequest::header(std::string_view name) const noexcept {
@@ -321,6 +313,64 @@ bool HttpRequest::parseContentLengthBody() {
   return false;
 }
 
+bool HttpRequest::parseChunkedBody() {
+  while (69) {
+
+    // read chunk size 4\r\n
+    if (_state == RequestParseState::ChunkSize) {
+      std::size_t pos = _rawBuffer.find("\r\n");
+      if (pos == std::string::npos)
+        return false; // more data needed
+
+      std::string sizeStr = _rawBuffer.substr(0, pos);
+      _rawBuffer.erase(0, pos + 2);
+
+      char *endptr = nullptr;
+      unsigned long size = std::strtoul(sizeStr.c_str(), &endptr, 16);
+      if (*endptr != '\0')
+        return (setError(400), false);
+
+      _currentChunkSize = size;
+
+      if (_maxBodySize > 0 && _currentChunkSize > _maxBodySize)
+        return (setError(413), false);
+
+      if (_currentChunkSize == 0) {
+        _state = RequestParseState::ChunkTrailer;
+      } else {
+        _state = RequestParseState::ChunkData;
+      }
+    }
+    // read chunk data yolo\r\n
+    if (_state == RequestParseState::ChunkData) {
+      if (_rawBuffer.size() < _currentChunkSize + 2)
+        return false; // wait for full chunk + crlf
+      if (_maxBodySize > 0 && _body.size() + _currentChunkSize > _maxBodySize)
+        return (setError(413), false);
+      // appedn chunk data
+      _body.append(_rawBuffer.substr(0, _currentChunkSize));
+      _rawBuffer.erase(0, _currentChunkSize);
+      // check trailing crlf
+      if (_rawBuffer.substr(0, 2) != "\r\n")
+        return (setError(400), false);
+      _rawBuffer.erase(0, 2);
+      // to the next chunk
+      _state = RequestParseState::ChunkSize;
+    }
+    // 0\r\n\r\n
+    if (_state == RequestParseState::ChunkTrailer) {
+      // expecting final crlf
+      if (_rawBuffer.size() < 2)
+        return false;
+      if (_rawBuffer.substr(0, 2) != "\r\n")
+        return (setError(400), false);
+      _rawBuffer.erase(0, 2);
+      _state = RequestParseState::Complete;
+      return true;
+    }
+  }
+}
+
 bool HttpRequest::hasContentLength() const noexcept {
   return _bodyMode == BodyTransferMode::ContentLength;
 }
@@ -339,62 +389,86 @@ std::size_t HttpRequest::bufferedByteCount() const noexcept {
   return _rawBuffer.size();
 }
 
-bool HttpRequest::parseChunkedBody() {
-  while (69) {
-
-    // read chunk size 4\r\n
-    if (_state == RequestParseState::ChunkSize) {
-      std::size_t pos = _rawBuffer.find("\r\n");
-      if (pos == std::string::npos)
-        return false; // more data needed
-
-      if(_maxBodySize > 0 && _currentChunkSize > _maxBodySize)
-        return (setError(413), false);
-
-      std::string sizeStr = _rawBuffer.substr(0, pos);
-      _rawBuffer.erase(0, pos + 2);
-
-      char *endptr = nullptr;
-      unsigned long size = std::strtoul(sizeStr.c_str(), &endptr, 16);
-      if (*endptr != '\0')
-        return (setError(400), false);
-
-      _currentChunkSize = size;
-
-      if (_currentChunkSize == 0) {
-        _state = RequestParseState::ChunkTrailer;
-      } else {
-        _state = RequestParseState::ChunkData;
-      }
-    }
-    // read chunk data yolo\r\n
-    if(_state == RequestParseState::ChunkData){
-        if(_rawBuffer.size() < _currentChunkSize + 2)
-            return false; // wait for full chunk + crlf
-        if(_maxBodySize > 0 && _body.size() + _currentChunkSize > _maxBodySize)
-            return (setError(413), false);
-        // appedn chunk data 
-        _body.append(_rawBuffer.substr(0, _currentChunkSize));
-        _rawBuffer.erase(0, _currentChunkSize);
-        // check trailing crlf
-        if(_rawBuffer.substr(0, 2) != "\r\n")
-            return (setError(413), false);
-        _rawBuffer.erase(0,2);
-        // to the next chunk
-        _state = RequestParseState::ChunkSize;
-    }
-    // 0\r\n\r\n
-    if(_state == RequestParseState::ChunkTrailer){
-        // expecting final crlf
-        if(_rawBuffer.size() < 2)
-            return false;
-        if(_rawBuffer.substr(0, 2) != "\r\n")
-            return (setError(400), false);
-        _rawBuffer.erase(0,2);
-        _state = RequestParseState::Complete;
-        return true;
-    }
+void HttpRequest::storeHeader(std::string key, std::string value) {
+  if (key == "Content-Length" && hasHeader(key)) {
+    setError(400);
+    return;
   }
+  _headers[std::move(key)] = std::move(value);
+}
+
+bool HttpRequest::hasHeader(std::string_view name) const noexcept {
+  return _headers.find(name) != _headers.end();
+}
+
+void HttpRequest::setError(int statusCode) noexcept {
+  _errorStatus = statusCode;
+  _state = RequestParseState::Error;
+}
+
+RequestParseState HttpRequest::state() const noexcept { return _state; }
+
+bool HttpRequest::isComplete() const noexcept {
+  return _state == RequestParseState::Complete;
+}
+
+bool HttpRequest::hasError() const noexcept {
+  return _state == RequestParseState::Error;
+}
+int HttpRequest::errorStatus() const noexcept { return _errorStatus; }
+
+HttpMethod HttpRequest::method() const noexcept { return _method; }
+std::string_view HttpRequest::methodText() const noexcept {
+  return _methodText;
+}
+
+std::string_view HttpRequest::target() const noexcept { return _target; }
+
+std::string_view HttpRequest::path() const noexcept { return _path; }
+
+std::string_view HttpRequest::queryString() const noexcept {
+  return _queryString;
+}
+
+std::string_view HttpRequest::httpVersion() const noexcept {
+  return _httpVersion;
+}
+
+const HeaderMap &HttpRequest::headers() const noexcept { return _headers; }
+
+std::string_view HttpRequest::body() const noexcept { return _body; }
+
+BodyTransferMode HttpRequest::bodyTransferMode() const noexcept {
+  return _bodyMode;
+}
+
+void HttpRequest::setMaxBodySize(std::size_t bytes) noexcept {
+  _maxBodySize = bytes;
+}
+
+void HttpRequest::reset() noexcept {
+  _state = RequestParseState::StartLine;
+  _errorStatus = 0;
+
+  _rawBuffer.clear();
+  _headerEndPos = std::string::npos;
+  _bodyBytesExpected = 0;
+  _bodyBytesReceived = 0;
+  _currentChunkSize = 0;
+  _maxBodySize = 0;
+
+  _methodText.clear();
+  _method = HttpMethod::Unknown;
+  _target.clear();
+  _path.clear();
+  _queryString.clear();
+  _httpVersion.clear();
+
+  _headers.clear();
+  _body.clear();
+
+  _bodyMode = BodyTransferMode::None;
+  _keepAlive = false;
 }
 
 } // namespace webserv
