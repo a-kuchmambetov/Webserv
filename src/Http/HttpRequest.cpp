@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace webserv {
 
@@ -275,20 +276,70 @@ bool HttpRequest::processHeaders() {
 
 
 void HttpRequest::storeHeader(std::string key, std::string value){
-    _headers[key] = std::move(value);
+    if(key == "Content-Length" && hasHeader(key)){
+        setError(400);
+        return;
+    }
+    _headers[std::move(key)] = std::move(value);
 }
 
 bool HttpRequest::hasHeader(std::string_view name) const noexcept{
-    return _headers.find(std::string(name)) != _headers.end();
+    return _headers.find(name) != _headers.end();
 }
 
 // optional a value that may or may not exist
 std::optional<std::string_view>HttpRequest::header(std::string_view name) const noexcept{
-    auto it = _headers.find(std::string(name));
+    auto it = _headers.find(name);
     if(it == _headers.end())
         return std::nullopt;
     return std::string_view(it->second);
 }
+
+
+bool HttpRequest::parseBody(){
+    if(_bodyMode == BodyTransferMode::ContentLength)
+        return parseContentLengthBody();
+    if (_bodyMode == BodyTransferMode::Chunked)
+        return parseChunkedBody();
+    return true;
+}
+
+// reads the request body when we know its size 
+bool HttpRequest::parseContentLengthBody(){
+    std::size_t available = _rawBuffer.size();
+    std::size_t remainig = _bodyBytesExpected - _bodyBytesReceived;
+
+    std::size_t toRead = std::min(available,remainig);
+    _body.append(_rawBuffer.substr(0, toRead));
+    _rawBuffer.erase(0,toRead);
+
+    _bodyBytesReceived += toRead;
+    if(_bodyBytesReceived == _bodyBytesExpected){
+        _state = RequestParseState::Complete;
+        return true;
+    }
+    return false;
+}
+
+bool HttpRequest::hasContentLength() const noexcept{
+    return _bodyMode == BodyTransferMode::ContentLength;
+}
+
+std::size_t HttpRequest::contentLength() const noexcept{
+    return _bodyBytesExpected;
+}
+
+bool HttpRequest::isChunked() const noexcept{
+    return _bodyMode == BodyTransferMode::Chunked;
+}
+
+bool HttpRequest::keepAliveRequested() const noexcept{
+    return _keepAlive;
+}
+
+std::size_t HttpRequest::bufferedByteCount() const noexcept{
+    return _rawBuffer.size();
+} 
 
 
 } // namespace webserv
