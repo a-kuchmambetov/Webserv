@@ -58,7 +58,7 @@ private:
   void setError(int statusCode) noexcept;
   void storeHeader(std::string key, std::string value);
 
-  [[nodiscard]] static std::string decodeUriComponent(std::string_view value);
+  [[nodiscard]] static std::string decodeUriComponent(std::string_view value, DecodeMode mode); // changed, notify guys
   [[nodiscard]] static std::string normalizePath(std::string_view path);
 
   RequestParseState _state{RequestParseState::StartLine};

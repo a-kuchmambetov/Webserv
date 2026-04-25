@@ -28,6 +28,11 @@ enum class RequestParseState : std::uint8_t {
   Error,
 };
 
+enum class DecodeMode : std::uint8_t {
+  Path,
+  Query
+};
+
 enum class BodyTransferMode : std::uint8_t {
   None,
   ContentLength,
