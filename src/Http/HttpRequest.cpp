@@ -139,8 +139,8 @@ void HttpRequest::parseTarget() {
     return;
   }
 
-  std::string decodedPath = decodeUriComponent(rawPath);
-  std::string decodedQuery = decodeUriComponent(rawQuery);
+  std::string decodedPath = decodeUriComponent(rawPath, DecodeMode::Path);
+  std::string decodedQuery = decodeUriComponent(rawQuery, DecodeMode::Query);
 
   std::string normalized = normalizePath(decodedPath);
   if (normalized.empty() || normalized[0] != '/') {
@@ -152,22 +152,26 @@ void HttpRequest::parseTarget() {
   _queryString = decodedQuery;
 }
 
-std::string HttpRequest::decodeUriComponent(std::string_view value) {
+std::string HttpRequest::decodeUriComponent(std::string_view value,
+                                            DecodeMode mode) {
   std::string res;
   res.reserve(value.size());
 
   for (std::size_t i = 0; i < value.size(); ++i) {
     char c = value[i];
-    if (c == '%') {
+
+    if (mode == DecodeMode::Query && c == '+') {
+      res += ' ';
+    } else if (c == '%') {
       char hex[3] = {value[i + 1], value[i + 2], 0};
-      char decoded = static_cast<char>(std::strtol(hex, NULL, 16));
+      char decoded = static_cast<char>(std::strtol(hex, nullptr, 16));
       res += decoded;
       i += 2;
-    } else if (c == '+')
-      res += ' ';
-    else
+    } else {
       res += c;
+    }
   }
+
   return res;
 }
 
@@ -246,8 +250,8 @@ bool HttpRequest::parseHeaders() {
   return processHeaders();
 }
 
-// case insensitive 
-// stores headers 
+// case insensitive
+// stores headers
 // rejects CL H TE if they appear more than once
 void HttpRequest::storeHeader(std::string key, std::string value) {
   if (key == "Content-Length" || key == "Host" || key == "Transfer-Encoding") {
