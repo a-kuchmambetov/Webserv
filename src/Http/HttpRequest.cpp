@@ -17,7 +17,7 @@ namespace webserv {
 ParseOutcome HttpRequest::append(std::string_view bytes) {
   _rawBuffer.append(bytes);
 
-  while (69) {
+  while (true) {
     switch (_state) {
     case RequestParseState::StartLine:
       if (!parseStartLine()) {
@@ -38,6 +38,8 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
         return ParseOutcome::NeedMoreData;
       break;
     case RequestParseState::ChunkSize:
+    case RequestParseState::ChunkData:
+    case RequestParseState::ChunkTrailer:
       if (!parseChunkedBody()) {
         if (_state == RequestParseState::Error)
           return ParseOutcome::Error;
@@ -67,12 +69,14 @@ wrong HTTP version	505
 body too large	413
 headers too large (optional)	431
 */
+
+// extracting and validating request line
 bool HttpRequest::parseStartLine() {
   std::string::size_type pos = _rawBuffer.find("\r\n");
   if (pos == std::string::npos)
     return false; // still need to wait for more data from T
 
-  // extract first line
+  // extract first line & removes from buffer
   std::string line = _rawBuffer.substr(0, pos);
   _rawBuffer.erase(0, pos + 2);
 
@@ -106,6 +110,7 @@ bool HttpRequest::parseStartLine() {
   return true;
 }
 
+// case sensitive
 HttpMethod parseHttpMethod(std::string_view method) noexcept {
   if (method == "GET")
     return HttpMethod::Get;
@@ -195,6 +200,13 @@ bool HttpRequest::isValidPercent(std::string_view value) {
   return true;
 }
 
+// extracting raw header lines from _rawBuffer
+/*
+Host: example.com\r\n
+Content-Length: 5\r\n
+\r\n
+HELLO
+*/
 bool HttpRequest::parseHeaders() {
   std::size_t headerEnd = _rawBuffer.find("\r\n\r\n");
   if (headerEnd == std::string::npos)
@@ -212,9 +224,11 @@ bool HttpRequest::parseHeaders() {
     pos = lineEnd + 2;
     if (line.empty())
       continue;
+
     std::size_t colonPos = line.find(':');
     if (colonPos == std::string::npos || colonPos == 0)
       return (setError(400), false);
+
     std::string key = line.substr(0, colonPos);
     std::string value = line.substr(colonPos + 1);
 
@@ -226,54 +240,80 @@ bool HttpRequest::parseHeaders() {
       value = value.substr(start, end - start + 1);
 
     storeHeader(key, value);
+    if (_state == RequestParseState::Error)
+      return false;
   }
   return processHeaders();
+}
+
+// case insensitive 
+// stores headers 
+// rejects CL H TE if they appear more than once
+void HttpRequest::storeHeader(std::string key, std::string value) {
+  if (key == "Content-Length" || key == "Host" || key == "Transfer-Encoding") {
+    if (_headers.find(key) != _headers.end()) {
+      setError(400);
+      return;
+    }
+  }
+
+  _headers[std::move(key)] = std::move(value);
 }
 
 // transfer-encoding -> chunked content length must me ignored
 
 bool HttpRequest::processHeaders() {
-  if (!hasHeader("Host") || header("Host")->empty())
+  // Host required (HTTP/1.1)
+  auto host = header("Host");
+  if (!host || host->empty())
     return (setError(400), false);
+
   _keepAlive = true;
 
-  if (hasHeader("Connection")) {
-    std::string val = std::string(header("Connection").value());
-    for (std::size_t i = 0; i < val.size(); ++i)
-      val[i] = static_cast<char>(std::tolower(val[i]));
+  if (auto conn = header("Connection")) {
+    std::string val(conn->begin(), conn->end());
+    for (char &c : val)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
     if (val == "close")
       _keepAlive = false;
   }
 
-  if (hasHeader("Transfer-Encoding")) {
-    std::string val = std::string(header("Transfer-Encoding").value());
-    for (std::size_t i = 0; i < val.size(); ++i)
-      val[i] = static_cast<char>(std::tolower(val[i]));
+  if (auto te = header("Transfer-Encoding")) {
+    std::string val(te->begin(), te->end());
+    for (char &c : val)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
     if (val == "chunked") {
       _bodyMode = BodyTransferMode::Chunked;
       _state = RequestParseState::ChunkSize;
-      return true;
+      return true; // ✅ IGNORE Content-Length completely
     }
     return (setError(400), false);
   }
 
-  if (hasHeader("Content-Length")) {
+  if (auto cl = header("Content-Length")) {
     char *endptr = nullptr;
-    unsigned long length = std::strtoul(
-        std::string(header("Content-Length").value()).c_str(), &endptr, 10);
+    unsigned long length =
+        std::strtoul(std::string(cl->begin(), cl->end()).c_str(), &endptr, 10);
 
     if (*endptr != '\0')
       return (setError(400), false);
+
     if (_maxBodySize > 0 && length > _maxBodySize)
       return (setError(413), false);
+
     _bodyBytesExpected = static_cast<std::size_t>(length);
     _bodyMode = BodyTransferMode::ContentLength;
+
     if (_bodyBytesExpected == 0)
       _state = RequestParseState::Complete;
     else
       _state = RequestParseState::Body;
+
     return true;
   }
+
   _bodyMode = BodyTransferMode::None;
   _state = RequestParseState::Complete;
   return true;
@@ -314,7 +354,7 @@ bool HttpRequest::parseContentLengthBody() {
 }
 
 bool HttpRequest::parseChunkedBody() {
-  while (69) {
+  while (true) {
 
     // read chunk size 4\r\n
     if (_state == RequestParseState::ChunkSize) {
@@ -389,14 +429,6 @@ std::size_t HttpRequest::bufferedByteCount() const noexcept {
   return _rawBuffer.size();
 }
 
-void HttpRequest::storeHeader(std::string key, std::string value) {
-  if (key == "Content-Length" && hasHeader(key)) {
-    setError(400);
-    return;
-  }
-  _headers[std::move(key)] = std::move(value);
-}
-
 bool HttpRequest::hasHeader(std::string_view name) const noexcept {
   return _headers.find(name) != _headers.end();
 }
@@ -451,7 +483,7 @@ void HttpRequest::reset() noexcept {
   _errorStatus = 0;
 
   _rawBuffer.clear();
-  _headerEndPos = std::string::npos;
+  _headerEndPos = std::string::npos; // not using it
   _bodyBytesExpected = 0;
   _bodyBytesReceived = 0;
   _currentChunkSize = 0;
