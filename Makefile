@@ -72,7 +72,7 @@ test-validator: $(TEST_BIN_DIR)/validator
 	@cd $(TEST_DIR) && ./bin/validator
 
 test-httprequest: $(TEST_BIN_DIR)/httprequest
-	@cd $(TEST_DIR) && ./bin/httprequest
+	@cd $(TEST_DIR) && ./bin/httprequest --gtest_color=yes
 
 $(TEST_BIN_DIR)/tokenizer: $(TEST_DIR)/test_tokenizer.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
