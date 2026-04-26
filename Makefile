@@ -7,7 +7,8 @@ DEPFLAGS = -MMD -MP
 
 SRC_SHARED =	src/Shared/UniqueFd.cpp
 
-SRC_HTTP = src/Http/HttpTypes.cpp
+SRC_HTTP = src/Http/HttpTypes.cpp \
+					 src/Http/HttpRequest.cpp
 
 SRC_SERVERCONFIG = src/Configs/ServerConfig.cpp \
 									 src/Configs/LocationConfig.cpp \
@@ -57,7 +58,7 @@ re: fclean all
 TEST_DIR      = tests
 TEST_BIN_DIR  = $(TEST_DIR)/bin
 TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP)
-TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR)
+TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR) -lgtest -lgtest_main -pthread
 
 test: test-tokenizer test-parser test-validator
 
@@ -70,6 +71,9 @@ test-parser: $(TEST_BIN_DIR)/parser
 test-validator: $(TEST_BIN_DIR)/validator
 	@cd $(TEST_DIR) && ./bin/validator
 
+test-httprequest: $(TEST_BIN_DIR)/httprequest
+	@cd $(TEST_DIR) && ./bin/httprequest
+
 $(TEST_BIN_DIR)/tokenizer: $(TEST_DIR)/test_tokenizer.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
@@ -77,6 +81,9 @@ $(TEST_BIN_DIR)/parser: $(TEST_DIR)/test_parser.cpp $(TEST_COMMON) | $(TEST_BIN_
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
 $(TEST_BIN_DIR)/validator: $(TEST_DIR)/test_validator.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
+	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+$(TEST_BIN_DIR)/httprequest: $(TEST_DIR)/test_http_request.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
 $(TEST_BIN_DIR):

@@ -26,6 +26,12 @@ Connection &Connection::operator=(Connection &&other) noexcept = default;
 
 int Connection::getFd() const noexcept { return _fd.get(); }
 
+ConnectionState Connection::getState() const noexcept { return _state; }
+
+const ConnectionOptions &Connection::getOptions() const noexcept {
+  return _options;
+}
+
 void Connection::setPeerAddress(std::string ip, std::uint16_t port) {
   _peerAddress = {ip, port};
 }
@@ -34,46 +40,126 @@ const PeerAddress &Connection::getPeerAddress() const noexcept {
   return _peerAddress;
 }
 
-// IoResult Connection::onReadable() {
-//   if (_state != ConnectionState::ReadingRequest)
-//     return IoResult::Continue;
+void Connection::markActivity(
+    std::chrono::steady_clock::time_point now) noexcept {
+  _lastActivity = now;
+}
 
-//   IoResult readResult = readFromSocket();
-//   if (readResult != IoResult::Continue)
-//     return readResult;
+std::chrono::steady_clock::time_point Connection::lastActivity()
+    const noexcept {
+  return _lastActivity;
+}
 
-//   if (_options.maxRequestBodySize > 0)
-//     _request.setMaxBodySize(_options.maxRequestBodySize);
+bool Connection::isTimedOut(
+    std::chrono::steady_clock::time_point now) const noexcept {
+  return now - _lastActivity >= _options.idleTimeout;
+}
 
-//   ParseOutcome outcome = _request.append(_readBuffer);
-//   _readBuffer.clear();
+bool Connection::wantsRead() const noexcept {
+  return _state == ConnectionState::ReadingRequest;
+}
 
-//   switch (outcome) {
-//   case ParseOutcome::NeedMoreData:
-//     return IoResult::Continue;
-//   case ParseOutcome::Complete:
-//     _requestReady = true;
-//     _state = ConnectionState::ProcessingRequest;
-//     return IoResult::Complete;
-//   case ParseOutcome::Error:
-//     return IoResult::Error;
-//   }
-//   return IoResult::Error;
-// }
+bool Connection::wantsWrite() const noexcept {
+  return _state == ConnectionState::WritingResponse && !_writeBuffer.empty();
+}
 
-// IoResult Connection::readFromSocket() {
-//   std::vector<char> buffer(_options.readChunkSize);
-//   ssize_t bytesRead = recv(_fd.get(), buffer.data(), buffer.size(), 0);
+bool Connection::shouldClose() const noexcept { return _closeAfterWrite; }
 
-//   if (bytesRead > 0) {
-//     _readBuffer.append(buffer.data(), static_cast<std::size_t>(bytesRead));
-//     return IoResult::Continue;
-//   }
-//   if (bytesRead == 0)
-//     return IoResult::Closed;
-//   if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
-//     return IoResult::Continue;
-//   return IoResult::Error;
-// }
+IoResult Connection::onReadable() {
+  if (_state != ConnectionState::ReadingRequest)
+    return IoResult::Continue;
+
+  IoResult readResult = readFromSocket();
+  if (readResult != IoResult::Continue)
+    return readResult;
+
+  if (_options.maxRequestBodySize > 0)
+    _request.setMaxBodySize(_options.maxRequestBodySize);
+
+  ParseOutcome outcome = _request.append(_readBuffer);
+  _readBuffer.clear();
+
+  switch (outcome) {
+  case ParseOutcome::NeedMoreData:
+    return IoResult::Continue;
+  case ParseOutcome::Complete:
+    _requestReady = true;
+    _state = ConnectionState::ProcessingRequest;
+    return IoResult::Complete;
+  case ParseOutcome::Error:
+    return IoResult::Error;
+  }
+  return IoResult::Error;
+}
+
+IoResult Connection::onWritable() { return writeToSocket(); }
+
+HttpRequest &Connection::getRequest() noexcept { return _request; }
+
+const HttpRequest &Connection::getRequest() const noexcept { return _request; }
+
+bool Connection::hasCompleteRequest() const noexcept { return _requestReady; }
+
+void Connection::appendResponseBytes(std::string_view bytes) {
+  _writeBuffer.append(bytes);
+}
+
+void Connection::prepareForNextRequest() {
+  _request.reset();
+  _requestReady = false;
+  _readBuffer.clear();
+  _writeBuffer.clear();
+  _closeAfterWrite = false;
+  _state = ConnectionState::ReadingRequest;
+}
+
+void Connection::markForClose() noexcept { _closeAfterWrite = true; }
+
+void Connection::close() noexcept {
+  _fd = UniqueFd();
+  _state = ConnectionState::Closed;
+}
+
+IoResult Connection::readFromSocket() {
+  std::vector<char> buffer(_options.readChunkSize);
+  ssize_t bytesRead = recv(_fd.get(), buffer.data(), buffer.size(), 0);
+
+  if (bytesRead > 0) {
+    _readBuffer.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+    return IoResult::Continue;
+  }
+  if (bytesRead == 0)
+    return IoResult::Closed;
+  if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+    return IoResult::Continue;
+  return IoResult::Error;
+}
+
+IoResult Connection::writeToSocket() {
+  while (!_writeBuffer.empty()) {
+    ssize_t bytesSent =
+        send(_fd.get(), _writeBuffer.data(), _writeBuffer.size(), MSG_NOSIGNAL);
+
+    if (bytesSent > 0) {
+      _writeBuffer.erase(0, static_cast<std::size_t>(bytesSent));
+      continue;
+    }
+    if (bytesSent == 0)
+      return IoResult::Continue;
+    if (errno == EINTR)
+      continue;
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      return IoResult::Continue;
+    return IoResult::Error;
+  }
+
+  if (_closeAfterWrite) {
+    _state = ConnectionState::Closed;
+    return IoResult::Closed;
+  }
+
+  prepareForNextRequest();
+  return IoResult::Complete;
+}
 
 } // namespace webserv

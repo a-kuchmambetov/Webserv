@@ -13,6 +13,7 @@
 
 namespace webserv {
 
+namespace {
 struct Listener {
   UniqueFd fd;
   std::string host;
@@ -25,6 +26,8 @@ struct ClientSession {
   const ServerConfig *defaultServer;
   int listenerFd{-1};
 };
+
+} // namespace
 
 class WebServer {
 public:
@@ -39,6 +42,7 @@ public:
   WebServer &operator=(WebServer &&other) = delete;
 
   void run();
+
 private:
   void setNonblockingFlag(UniqueFd &fd) const;
   [[nodiscard]] int setupSocket(const ListenEndpoint &endpoint) const;
@@ -47,7 +51,10 @@ private:
 
   [[nodiscard]] bool acceptConnection(const Listener &listener);
   void removeConnection(const ClientSession &ClientSession);
-  void readFromFd(int fd);
+  void readRequest(int fd);
+  void procesRequest(int fd);
+  void buildResponse(int fd);
+  void writeResponse(int fd);
 
   Poller _poller;
   std::vector<ServerConfig> _servers;

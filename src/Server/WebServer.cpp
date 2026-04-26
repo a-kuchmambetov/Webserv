@@ -1,5 +1,4 @@
 #include "WebServer.hpp"
-#include "Connection.hpp"
 #include "HttpTypes.hpp"
 #include "Parser.hpp"
 #include "Poller.hpp"
@@ -8,7 +7,6 @@
 #include "UniqueFd.hpp"
 #include "Validator.hpp"
 
-#include <cerrno>
 #include <csignal>
 #include <cstring>
 #include <iostream>
@@ -40,84 +38,6 @@ WebServer::WebServer(const std::filesystem::path &configPath) {
 }
 
 WebServer::~WebServer() = default;
-
-void WebServer::run() {
-  setupSignals();
-
-  // Create listening sockets for each server config
-  for (ServerConfig &serverConfig : _servers)
-    createServer(serverConfig);
-
-  while (!_shouldStop) {
-    EventsData eventData = _poller.getEventsReady();
-    int n = eventData.eventsReadyN;
-    std::vector<epoll_event> &events = *eventData.events;
-
-    if (n == 0)
-      continue;
-
-    if (n == -1) {
-      if (errno == EINTR)
-        continue;
-      throw std::runtime_error("epoll_wait failed");
-    }
-
-    for (int i = 0; i < n; ++i) {
-      int fd = events[i].data.fd;
-
-      // SIGINT/SIGTERM delivered via signalfd
-      if (fd == _signalFd.get()) {
-        signalfd_siginfo si;
-        while (read(fd, &si, sizeof(si)) == sizeof(si)) {
-        }
-        std::cout << "\n[Server] : shutdown signal received" << std::endl;
-        _shouldStop = true;
-        break;
-      }
-      // New incoming connection
-      else if (_listeningFds.contains(fd)) {
-
-        while (acceptConnection(_listeningFds.at(fd))) {
-        }
-      }
-      // Client disconnected
-      else if (events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
-        removeConnection(_connectionFds.at(fd));
-
-      }
-      // Client sent data
-      else if (events[i].events & EPOLLIN) {
-        char buf[4096];
-
-        while (true) {
-          ssize_t bytes = recv(fd, buf, sizeof(buf), 0);
-
-          if (bytes > 0) {
-            std::cout << "Received " << bytes << " bytes from client " << fd
-                      << ":" << std::endl;
-            std::cout.write(buf, bytes);
-            std::cout << '\n';
-            std::cout.flush();
-            continue;
-          }
-
-          if (bytes == 0) {
-            removeConnection(_connectionFds.at(fd));
-            break;
-          }
-
-          if (errno == EINTR)
-            continue;
-          if (errno == EAGAIN || errno == EWOULDBLOCK)
-            break;
-
-          removeConnection(_connectionFds.at(fd));
-          break;
-        }
-      }
-    }
-  }
-}
 
 void WebServer::setupSignals() {
   sigset_t mask;
@@ -216,81 +136,5 @@ void WebServer::createServer(const ServerConfig &serverConfig) {
               << endpoint.port << std::endl;
   }
 }
-
-bool WebServer::acceptConnection(const Listener &listener) {
-  int listenerFd = listener.fd.get();
-
-  sockaddr_in clientAddr{};
-  socklen_t clientLen = sizeof(clientAddr);
-
-  UniqueFd clientFd(accept(
-      listenerFd, reinterpret_cast<sockaddr *>(&clientAddr), &clientLen));
-
-  if (clientFd.get() == -1) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return false;
-
-    throw std::runtime_error("accept failed");
-  }
-
-  setNonblockingFlag(clientFd);
-
-  _poller.addFd(clientFd, EPOLLIN | EPOLLRDHUP, FdType::Client);
-
-  int rawClientFd = clientFd.get();
-  _connectionFds.emplace(rawClientFd,
-                         ClientSession{Connection(std::move(clientFd)),
-                                       listener.serverConfig, listenerFd});
-
-  ClientSession &clientRef = _connectionFds.at(rawClientFd);
-
-  uint32_t ipv4 = ntohl(clientAddr.sin_addr.s_addr);
-  uint16_t port = ntohs(clientAddr.sin_port);
-
-  std::string ipv4Str = std::to_string((ipv4 >> 24) & 0xFF) + '.' +
-                        std::to_string((ipv4 >> 16) & 0xFF) + '.' +
-                        std::to_string((ipv4 >> 8) & 0xFF) + '.' +
-                        std::to_string(ipv4 & 0xFF);
-
-  clientRef.connection.setPeerAddress(ipv4Str, port);
-
-  const PeerAddress &clientPeerAdress = clientRef.connection.getPeerAddress();
-
-  std::cout << "[Server] : client connected - " << clientPeerAdress.ip << ":"
-            << clientPeerAdress.port << std::endl;
-
-  return true;
-}
-
-void WebServer::removeConnection(const ClientSession &clientSession) {
-  int clientFd = clientSession.connection.getFd();
-  const PeerAddress &clientPeerAdress =
-      clientSession.connection.getPeerAddress();
-
-  std::cout << "[Server] : client disconnected - " << clientPeerAdress.ip << ":"
-            << clientPeerAdress.port << std::endl;
-
-  _poller.removeFd(clientFd);
-  _connectionFds.erase(clientFd);
-}
-
-// void WebServer::readFromFd(int fd) {
-//   Connection &conn = _connectionFds.at(fd).connection;
-
-//   switch (conn.onReadable()) {
-//   case IoResult::Continue:
-//     conn.markActivity();
-//     break;
-//   case IoResult::Complete:
-//     conn.markActivity();
-//     _poller.modFd(fd, EPOLLOUT | EPOLLRDHUP); // flip to write
-//     break;
-//   case IoResult::Closed:
-//   case IoResult::Error:
-//     _poller.removeFd(fd);
-//     _connectionFds.erase(fd); // UniqueFd dtor closes fd
-//     break;
-//   }
-// }
 
 }; // namespace webserv
