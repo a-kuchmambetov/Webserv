@@ -21,12 +21,16 @@ SRC_SERVER = src/Server/WebServer.cpp \
 						 src/Server/Connection.cpp \
 						 src/Server/Poller.cpp
 
+SRC_CGI = src/CGIs/CgiRequest.cpp \
+				src/CGIs/CgiResult.cpp
+
 
 SRCS = main.cpp \
 			$(SRC_SHARED) \
 			$(SRC_HTTP) \
 			$(SRC_SERVER) \
-			$(SRC_SERVERCONFIG)
+			$(SRC_SERVERCONFIG) \
+			$(SRC_CGI)
 
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
