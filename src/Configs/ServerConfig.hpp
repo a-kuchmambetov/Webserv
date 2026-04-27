@@ -19,6 +19,7 @@ public:
   listenEndpoints() const noexcept;
   [[nodiscard]] const std::vector<std::string> &serverNames() const noexcept;
   [[nodiscard]] std::size_t clientMaxBodySize() const noexcept;
+  [[nodiscard]] std::size_t clientMaxHeaderSize() const noexcept;
   [[nodiscard]] const std::filesystem::path &root() const noexcept;
   [[nodiscard]] const std::vector<std::string> &indexFiles() const noexcept;
   [[nodiscard]] const ErrorPageMap &errorPages() const noexcept;
@@ -28,6 +29,7 @@ public:
   void addListenEndpoint(ListenEndpoint endpoint);
   void setServerNames(std::vector<std::string> names);
   void setClientMaxBodySize(std::size_t bytes) noexcept;
+  void setClientMaxHeaderSize(std::size_t bytes) noexcept;
   void setRoot(std::filesystem::path value);
   void setIndexFiles(std::vector<std::string> values);
   void setErrorPages(ErrorPageMap pages);
@@ -45,7 +47,8 @@ public:
 private:
   std::vector<ListenEndpoint> _listenEndpoints;
   std::vector<std::string> _serverNames;
-  std::size_t _clientMaxBodySize{0};
+  std::size_t _clientMaxBodySize{1 * 1024};
+  std::size_t _clientMaxHeaderSize{8 * 1024};
 
   std::filesystem::path _root;
   std::vector<std::string> _indexFiles;

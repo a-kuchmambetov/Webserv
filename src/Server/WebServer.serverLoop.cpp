@@ -6,10 +6,12 @@
 #include "UniqueFd.hpp"
 
 #include <cerrno>
+#include <chrono>
 
 #include <iostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -33,9 +35,6 @@ void WebServer::run() {
     EventsData eventData = _poller.getEventsReady();
     int n = eventData.eventsReadyN;
     std::vector<epoll_event> &events = *eventData.events;
-
-    if (n == 0)
-      continue;
 
     if (n == -1) {
       if (errno == EINTR)
@@ -73,6 +72,24 @@ void WebServer::run() {
         writeResponse(fd);
       }
     }
+
+    closeIdleConnections();
+  }
+}
+
+void WebServer::closeIdleConnections() {
+  auto now = std::chrono::steady_clock::now();
+
+  std::vector<int> timedOut;
+  for (const auto &[fd, session] : _connectionFds) {
+    if (session.connection.isTimedOut(now))
+      timedOut.push_back(fd);
+  }
+
+  for (int fd : timedOut) {
+    ClientSession &client = _connectionFds.at(fd);
+
+    removeConnection(client);
   }
 }
 
@@ -97,8 +114,15 @@ bool WebServer::acceptConnection(const Listener &listener) {
   _poller.addFd(clientFd, EPOLLIN | EPOLLRDHUP, FdType::Client);
 
   int rawClientFd = clientFd.get();
+
+  ConnectionOptions options;
+  if (listener.serverConfig) {
+    options.maxRequestBodySize = listener.serverConfig->clientMaxBodySize();
+    options.maxRequestHeaderSize = listener.serverConfig->clientMaxHeaderSize();
+  }
+
   _connectionFds.emplace(rawClientFd,
-                         ClientSession{Connection(std::move(clientFd)),
+                         ClientSession{Connection(std::move(clientFd), options),
                                        listener.serverConfig, listenerFd});
 
   ClientSession &clientRef = _connectionFds.at(rawClientFd);
@@ -121,14 +145,10 @@ bool WebServer::acceptConnection(const Listener &listener) {
   return true;
 }
 
-void WebServer::removeConnection(const ClientSession &clientSession) {
+void WebServer::removeConnection(ClientSession &clientSession) noexcept {
   int clientFd = clientSession.connection.getFd();
-  const PeerAddress &clientPeerAdress =
-      clientSession.connection.getPeerAddress();
 
-  std::cout << "[Server] : client disconnected by server - "
-            << clientPeerAdress.ip << ":" << clientPeerAdress.port << std::endl;
-
+  clientSession.connection.close();
   _poller.removeFd(clientFd);
   _connectionFds.erase(clientFd);
 }

@@ -85,6 +85,8 @@ ServerConfig Parser::parseServer() {
       parseIndexDirective(server);
     else if (directive == "client_max_body_size")
       parseClientMaxBodySizeDirective(server);
+    else if (directive == "client_header_buffer_size")
+      parseClientMaxHeaderSizeDirective(server);
     else if (directive == "error_page")
       parseErrorPageDirective(server);
     else if (directive == "location")
@@ -190,6 +192,11 @@ void Parser::parseClientMaxBodySizeDirective(LocationConfig &location) {
   expectSemicolon();
 }
 
+void Parser::parseClientMaxHeaderSizeDirective(ServerConfig &server) {
+  server.setClientMaxHeaderSize(parseHeaderSize(expectWord()));
+  expectSemicolon();
+}
+
 void Parser::parseMethodsDirective(LocationConfig &location) {
   location.clearAllowedMethods();
   while (!atEnd() && peek().tokenType == Word)
@@ -250,9 +257,10 @@ ListenEndpoint Parser::parseEndpoint(const std::string &value) {
   throw std::runtime_error("invalid listen endpoint: " + value);
 }
 
-std::size_t Parser::parseBodySize(const std::string &value) {
+std::size_t Parser::parseSize(const std::string &value,
+                              const std::string runtimeErrorName) {
   if (value.empty())
-    throw std::runtime_error("empty client_max_body_size value");
+    throw std::runtime_error("empty " + runtimeErrorName + " value");
   char suffix =
       static_cast<char>(std::toupper(static_cast<unsigned char>(value.back())));
   std::size_t multiplier = 1;
@@ -270,8 +278,16 @@ std::size_t Parser::parseBodySize(const std::string &value) {
   std::size_t base = std::stoull(digits);
   std::size_t result = base * multiplier;
   if (multiplier > 1 && result / multiplier != base)
-    throw std::runtime_error("client_max_body_size overflow: " + value);
+    throw std::runtime_error(runtimeErrorName + " overflow: " + value);
   return result;
+}
+
+std::size_t Parser::parseBodySize(const std::string &value) {
+  return parseSize(value, "client_max_body_size");
+}
+
+std::size_t Parser::parseHeaderSize(const std::string &value) {
+  return parseSize(value, "client_header_buffer_size");
 }
 
 HttpMethod Parser::parseMethod(const std::string &value) {

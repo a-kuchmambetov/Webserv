@@ -11,3 +11,4 @@ webserv
 
 # Folder for storing local files
 .local
+tests/bin

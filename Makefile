@@ -17,6 +17,7 @@ SRC_SERVERCONFIG = src/Configs/ServerConfig.cpp \
 									 src/Configs/Validator.cpp
 
 SRC_SERVER = src/Server/WebServer.cpp \
+						 src/Server/WebServer.serverLoop.cpp \
 						 src/Server/Connection.cpp \
 						 src/Server/Poller.cpp
 
@@ -49,12 +50,7 @@ fclean: clean
 
 re: fclean all
 
-# --- Tests ----------------------------------------------------------------
-# Each component gets its own binary under tests/bin/ and is run from
-# tests/ so fixture paths stay relative (e.g. "fixtures/valid_spaced.conf").
-# Test sources reuse $(SRC_SERVERCONFIG) + $(SRC_HTTP) + the project's
-# $(CPPFLAGS)/$(CXXFLAGS) — no flag drift, no duplicated source lists.
-
+# --- Tests ---
 TEST_DIR      = tests
 TEST_BIN_DIR  = $(TEST_DIR)/bin
 TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP)
@@ -63,16 +59,16 @@ TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR) -lgtest -lgtest_main -pthread
 test: test-tokenizer test-parser test-validator
 
 test-tokenizer: $(TEST_BIN_DIR)/tokenizer
-	@cd $(TEST_DIR) && ./bin/tokenizer
+	@cd $(TEST_DIR) && ./bin/tokenizer --gtest_color=yes
 
 test-parser: $(TEST_BIN_DIR)/parser
-	@cd $(TEST_DIR) && ./bin/parser
+	@cd $(TEST_DIR) && ./bin/parser --gtest_color=yes
 
 test-validator: $(TEST_BIN_DIR)/validator
-	@cd $(TEST_DIR) && ./bin/validator
+	@cd $(TEST_DIR) && ./bin/validator --gtest_color=yes
 
-test-httprequest: $(TEST_BIN_DIR)/httprequest
-	@cd $(TEST_DIR) && ./bin/httprequest --gtest_color=yes
+test-http-request: $(TEST_BIN_DIR)/http-request
+	@cd $(TEST_DIR) && ./bin/http-request --gtest_color=yes
 
 $(TEST_BIN_DIR)/tokenizer: $(TEST_DIR)/test_tokenizer.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
@@ -83,7 +79,7 @@ $(TEST_BIN_DIR)/parser: $(TEST_DIR)/test_parser.cpp $(TEST_COMMON) | $(TEST_BIN_
 $(TEST_BIN_DIR)/validator: $(TEST_DIR)/test_validator.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
-$(TEST_BIN_DIR)/httprequest: $(TEST_DIR)/test_http_request.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
+$(TEST_BIN_DIR)/http-request: $(TEST_DIR)/test_http_request.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
 $(TEST_BIN_DIR):

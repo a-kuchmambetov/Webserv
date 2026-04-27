@@ -42,6 +42,7 @@ private:
   void parseIndexDirective(LocationConfig &location);
   void parseClientMaxBodySizeDirective(ServerConfig &server);
   void parseClientMaxBodySizeDirective(LocationConfig &location);
+  void parseClientMaxHeaderSizeDirective(ServerConfig &server);
 
   void parseMethodsDirective(LocationConfig &location);
   void parseAutoindexDirective(LocationConfig &location);
@@ -50,7 +51,10 @@ private:
   void parseCgiDirective(LocationConfig &location);
 
   [[nodiscard]] static ListenEndpoint parseEndpoint(const std::string &value);
+  [[nodiscard]] static std::size_t
+  parseSize(const std::string &value, const std::string runtimeErrorName);
   [[nodiscard]] static std::size_t parseBodySize(const std::string &value);
+  [[nodiscard]] static std::size_t parseHeaderSize(const std::string &value);
   [[nodiscard]] static HttpMethod parseMethod(const std::string &value);
 
   const std::vector<Token> &_tokens;

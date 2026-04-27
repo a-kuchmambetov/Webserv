@@ -3,9 +3,11 @@
 #include "HttpRequest.hpp"
 #include "HttpResponse.hpp"
 #include "HttpTypes.hpp"
+#include "UniqueFd.hpp"
 
 #include <cerrno>
 #include <cstddef>
+#include <iostream>
 #include <utility>
 #include <vector>
 
@@ -45,8 +47,8 @@ void Connection::markActivity(
   _lastActivity = now;
 }
 
-std::chrono::steady_clock::time_point Connection::lastActivity()
-    const noexcept {
+std::chrono::steady_clock::time_point
+Connection::lastActivity() const noexcept {
   return _lastActivity;
 }
 
@@ -75,6 +77,9 @@ IoResult Connection::onReadable() {
 
   if (_options.maxRequestBodySize > 0)
     _request.setMaxBodySize(_options.maxRequestBodySize);
+  // if (_options.maxRequestHeaderSize > 0)
+  // _request.setMaxHeaderSize(_options.maxRequestHeaderSize);
+  // IMPORTANT: waiting for implementation
 
   ParseOutcome outcome = _request.append(_readBuffer);
   _readBuffer.clear();
@@ -114,11 +119,6 @@ void Connection::prepareForNextRequest() {
 }
 
 void Connection::markForClose() noexcept { _closeAfterWrite = true; }
-
-void Connection::close() noexcept {
-  _fd = UniqueFd();
-  _state = ConnectionState::Closed;
-}
 
 IoResult Connection::readFromSocket() {
   std::vector<char> buffer(_options.readChunkSize);
@@ -160,6 +160,30 @@ IoResult Connection::writeToSocket() {
 
   prepareForNextRequest();
   return IoResult::Complete;
+}
+
+void Connection::close() noexcept {
+
+  const ConnectionState state = getState();
+  const PeerAddress &peer = getPeerAddress();
+
+  if (state == ConnectionState::ReadingRequest) {
+    std::cout << "[Server] : client timed out - " << peer.ip << ":" << peer.port
+              << std::endl;
+    std::string resMsg =
+        "HTTP/1.1 408 Request Timeout\r\n"
+        "Connection: close\r\n"
+        "Content-Type: text/html\r\n"
+        "Content-Length: 48\r\n"
+        "\r\b"
+        "<html><body><h1>408 Request Timeout</h1></body></html>\n";
+    send(_fd.get(), resMsg.data(), resMsg.size(), MSG_NOSIGNAL);
+  } else {
+    std::cout << "[Server] : client disconnected by server - " << peer.ip << ":"
+              << peer.port << std::endl;
+  }
+
+  _state = ConnectionState::Closed;
 }
 
 } // namespace webserv

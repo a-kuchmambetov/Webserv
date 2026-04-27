@@ -83,6 +83,8 @@ std::string reasonPhraseFor(int statusCode) {
     return "Length Required";
   case 413:
     return "Payload Too Large";
+  case 431:
+    return "Request Header Fields Too Large";
   case 500:
     return "Internal Server Error";
   case 501:

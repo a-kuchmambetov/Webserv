@@ -15,6 +15,7 @@ struct Token {
 class Tokenizer {
 public:
   Tokenizer() = default;
+  Tokenizer(std::string fullFileContent) noexcept;
   ~Tokenizer() = default;
 
   Tokenizer(const Tokenizer &) = delete;
@@ -28,7 +29,7 @@ public:
 private:
   void tokenizeContent();
 
-  std::string _file_content;
+  std::string _fileContent;
   std::vector<Token> _tokens;
 };
 } // namespace webserv

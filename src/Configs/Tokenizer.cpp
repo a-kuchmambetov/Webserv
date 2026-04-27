@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <fstream>
+#include <sstream>
 
 namespace webserv {
 
@@ -28,20 +29,32 @@ TokenType getDelimType(char letter) {
   }
 }
 
-} // namespace
-
-void Tokenizer::readFile(std::string fileName) {
-  std::ifstream reader(fileName);
-
+void readStream(std::istream &src, std::string &dest) noexcept {
   std::string buf;
-  while (std::getline(reader, buf)) {
+
+  while (std::getline(src, buf)) {
     std::size_t commentPos = buf.find("#");
 
     if (commentPos != std::string::npos)
       buf.erase(buf.begin() + commentPos, buf.end());
 
-    _file_content.append(buf);
+    dest.append(buf);
   }
+}
+
+} // namespace
+
+Tokenizer::Tokenizer(std::string fullFileContent) noexcept {
+  std::istringstream input(fullFileContent);
+
+  readStream(input, _fileContent);
+  tokenizeContent();
+}
+
+void Tokenizer::readFile(std::string fileName) {
+  std::ifstream reader(fileName);
+
+  readStream(reader, _fileContent);
   tokenizeContent();
 }
 
@@ -52,24 +65,24 @@ const std::vector<Token> &Tokenizer::getTokens() const noexcept {
 void Tokenizer::tokenizeContent() {
   std::size_t startPos = 0;
 
-  for (std::size_t i = 0; i < _file_content.length(); i++) {
-    char letter = _file_content[i];
+  for (std::size_t i = 0; i < _fileContent.length(); i++) {
+    char letter = _fileContent[i];
 
     if (isDelimiter(letter, " ")) {
       if (startPos < i)
-        _tokens.push_back({Word, _file_content.substr(startPos, i - startPos)});
+        _tokens.push_back({Word, _fileContent.substr(startPos, i - startPos)});
       startPos = i + 1;
     } else if (isDelimiter(letter, "{};")) {
       if (startPos < i)
-        _tokens.push_back({Word, _file_content.substr(startPos, i - startPos)});
+        _tokens.push_back({Word, _fileContent.substr(startPos, i - startPos)});
 
       _tokens.push_back({getDelimType(letter), std::string(1, letter)});
       startPos = i + 1;
     }
   }
 
-  if (startPos < _file_content.length())
-    _tokens.push_back({Word, _file_content.substr(startPos)});
+  if (startPos < _fileContent.length())
+    _tokens.push_back({Word, _fileContent.substr(startPos)});
 }
 
 } // namespace webserv

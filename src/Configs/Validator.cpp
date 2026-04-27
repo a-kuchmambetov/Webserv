@@ -6,8 +6,6 @@
 
 namespace webserv {
 
-namespace {}
-
 Validator::Validator(const std::vector<ServerConfig> &servers)
     : _servers(servers) {}
 

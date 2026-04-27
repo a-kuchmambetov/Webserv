@@ -37,7 +37,7 @@ public:
 private:
   UniqueFd _epollFd;
   std::vector<epoll_event> _events;
-  int _timeout{-1};
+  int _timeout{1000};
   std::map<int, FdType> _pollingFds;
 };
 

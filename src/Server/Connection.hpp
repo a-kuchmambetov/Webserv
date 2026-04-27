@@ -22,9 +22,10 @@ struct PeerAddress {
 };
 
 struct ConnectionOptions {
-  std::chrono::seconds idleTimeout{30};
+  std::chrono::seconds idleTimeout{15};
   std::size_t readChunkSize{16 * 1024};
   std::size_t maxRequestBodySize{0};
+  std::size_t maxRequestHeaderSize{8 * 1024};
 };
 
 class Connection {

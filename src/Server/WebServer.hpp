@@ -13,7 +13,6 @@
 
 namespace webserv {
 
-namespace {
 struct Listener {
   UniqueFd fd;
   std::string host;
@@ -26,8 +25,6 @@ struct ClientSession {
   const ServerConfig *defaultServer;
   int listenerFd{-1};
 };
-
-} // namespace
 
 class WebServer {
 public:
@@ -50,11 +47,12 @@ private:
   void setupSignals();
 
   [[nodiscard]] bool acceptConnection(const Listener &listener);
-  void removeConnection(const ClientSession &ClientSession);
+  void removeConnection(ClientSession &ClientSession) noexcept;
   void readRequest(int fd);
   void procesRequest(int fd);
   void buildResponse(int fd);
   void writeResponse(int fd);
+  void closeIdleConnections();
 
   Poller _poller;
   std::vector<ServerConfig> _servers;

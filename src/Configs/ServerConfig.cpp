@@ -1,5 +1,4 @@
 #include "ServerConfig.hpp"
-#include "Parser.hpp"
 
 #include <cstddef>
 #include <string>
@@ -19,6 +18,10 @@ const std::vector<std::string> &ServerConfig::serverNames() const noexcept {
 
 std::size_t ServerConfig::clientMaxBodySize() const noexcept {
   return _clientMaxBodySize;
+}
+
+std::size_t ServerConfig::clientMaxHeaderSize() const noexcept {
+  return _clientMaxHeaderSize;
 }
 
 const std::filesystem::path &ServerConfig::root() const noexcept {
@@ -51,6 +54,10 @@ void ServerConfig::setServerNames(std::vector<std::string> names) {
 
 void ServerConfig::setClientMaxBodySize(std::size_t bytes) noexcept {
   _clientMaxBodySize = bytes;
+}
+
+void ServerConfig::setClientMaxHeaderSize(std::size_t bytes) noexcept {
+  _clientMaxHeaderSize = bytes;
 }
 
 void ServerConfig::setRoot(std::filesystem::path value) {
