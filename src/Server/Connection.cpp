@@ -77,9 +77,9 @@ IoResult Connection::onReadable() {
 
   if (_options.maxRequestBodySize > 0)
     _request.setMaxBodySize(_options.maxRequestBodySize);
-  // if (_options.maxRequestHeaderSize > 0)
-  // _request.setMaxHeaderSize(_options.maxRequestHeaderSize);
-  // IMPORTANT: waiting for implementation
+  if (_options.maxRequestHeaderSize > 0)
+    _request.setMaxHeaderSize(
+        _options.maxRequestHeaderSize); // IMPORTANT: waiting for implementation
 
   ParseOutcome outcome = _request.append(_readBuffer);
   _readBuffer.clear();

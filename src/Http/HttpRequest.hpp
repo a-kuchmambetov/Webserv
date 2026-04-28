@@ -45,6 +45,7 @@ public:
   bool isValidPercent(std::string_view value);
 
   void setMaxBodySize(std::size_t bytes) noexcept;
+  void setMaxHeaderSize(std::size_t bytes) noexcept; // addded
 
 private:
   bool parseStartLine();
@@ -71,6 +72,7 @@ private:
   std::size_t _bodyBytesReceived{0};
   std::size_t _currentChunkSize{0};
   std::size_t _maxBodySize{0};
+  std::size_t _maxHeaderSize{0}; // added
 
   std::string _methodText;
   HttpMethod _method{HttpMethod::Unknown};

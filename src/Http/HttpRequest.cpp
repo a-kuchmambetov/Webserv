@@ -31,6 +31,14 @@ HttpMethod parseRequestMethod(std::string_view method) noexcept {
 ParseOutcome HttpRequest::append(std::string_view bytes) {
   _rawBuffer.append(bytes);
 
+  if (_maxHeaderSize > 0 && _state == RequestParseState::StartLine) {
+    std::size_t headerEnd = _rawBuffer.find("\r\n\r\n");
+    if (headerEnd != std::string::npos && headerEnd > _maxHeaderSize) {
+      setError(431);
+      return ParseOutcome::Error;
+    }
+  }
+
   while (true) {
     switch (_state) {
     case RequestParseState::StartLine:
@@ -85,33 +93,69 @@ headers too large (optional)	431
 */
 
 // extracting and validating request line
+// bool HttpRequest::parseStartLine() {
+//   std::string::size_type pos = _rawBuffer.find("\r\n");
+//   if (pos == std::string::npos)
+//     return false; // still need to wait for more data from T
+
+//   // extract first line & removes from buffer
+//   std::string line = _rawBuffer.substr(0, pos);
+//   _rawBuffer.erase(0, pos + 2);
+
+//   // space checks
+//   if (line.empty() || std::count(line.begin(), line.end(), ' ') != 2 ||
+//       line.front() == ' ' || line.back() == ' ')
+//     return (setError(400), false);
+
+//   // space pos
+//   std::string::size_type sp1 = line.find(' ');
+//   std::string::size_type sp2 = line.find(' ', sp1 + 1);
+
+//   // extract parts
+//   _methodText = line.substr(0, sp1);
+//   _target = line.substr(sp1 + 1, sp2 - sp1 - 1);
+//   _httpVersion = line.substr(sp2 + 1);
+
+//   // validation
+
+//   _method = parseRequestMethod(_methodText);
+//   if (_method == HttpMethod::Unknown)
+//     return (setError(501), false);
 bool HttpRequest::parseStartLine() {
   std::string::size_type pos = _rawBuffer.find("\r\n");
   if (pos == std::string::npos)
-    return false; // still need to wait for more data from T
+    return false;
 
-  // extract first line & removes from buffer
   std::string line = _rawBuffer.substr(0, pos);
   _rawBuffer.erase(0, pos + 2);
 
-  // space checks
-  if (line.empty() || std::count(line.begin(), line.end(), ' ') != 2 ||
-      line.front() == ' ' || line.back() == ' ')
+  // Check for completely empty line
+  if (line.empty())
     return (setError(400), false);
 
-  // space pos
+  // Count spaces more carefully for malformed lines
+  int spaceCount = std::count(line.begin(), line.end(), ' ');
+
+  // If there are not exactly 2 spaces, it's malformed (400)
+  if (spaceCount != 2) {
+    return (setError(400), false);
+  }
+
+  if (line.front() == ' ' || line.back() == ' ')
+    return (setError(400), false);
+
   std::string::size_type sp1 = line.find(' ');
   std::string::size_type sp2 = line.find(' ', sp1 + 1);
 
-  // extract parts
   _methodText = line.substr(0, sp1);
   _target = line.substr(sp1 + 1, sp2 - sp1 - 1);
   _httpVersion = line.substr(sp2 + 1);
 
-  // validation
-  _method = parseRequestMethod(_methodText);
-  if (_method == HttpMethod::Unknown)
+  // Check for empty parts
+  if (_methodText.empty() || _target.empty() || _httpVersion.empty())
     return (setError(400), false);
+
+  // all up is TEST TRY
   // validation of version
   if (_httpVersion.rfind("HTTP/", 0) != 0)
     return (setError(400), false);
@@ -137,6 +181,9 @@ bool HttpRequest::parseStartLine() {
   parseTarget();
   if (_state == RequestParseState::Error)
     return false;
+  _method = parseRequestMethod(_methodText);
+  if (_method == HttpMethod::Unknown)
+    return (setError(501), false); // 501
 
   _state = RequestParseState::Headers;
   return true;
@@ -234,19 +281,28 @@ HELLO
 */
 bool HttpRequest::parseHeaders() {
   std::size_t headerEnd = _rawBuffer.find("\r\n\r\n");
-  if (headerEnd == std::string::npos)
-    return false; // when we do not receive full header
+  if (headerEnd == std::string::npos) {
+    if (!_rawBuffer.empty()) {
+      std::size_t firstCRLF = _rawBuffer.find("\r\n");
+      if (firstCRLF != std::string::npos) {
+        return (setError(400), false);
+      }
+    }
+    return false;
+  }
+
   std::string headersSection = _rawBuffer.substr(0, headerEnd);
   _rawBuffer.erase(0, headerEnd + 4);
 
   std::size_t pos = 0;
-
-  while (pos < headersSection.length()) {
+  while (pos < headersSection.size()) {
     std::size_t lineEnd = headersSection.find("\r\n", pos);
     if (lineEnd == std::string::npos)
-      lineEnd = headersSection.length();
+      lineEnd = headersSection.size();
+
     std::string line = headersSection.substr(pos, lineEnd - pos);
     pos = lineEnd + 2;
+
     if (line.empty())
       continue;
 
@@ -255,14 +311,6 @@ bool HttpRequest::parseHeaders() {
       return (setError(400), false);
 
     std::string key = line.substr(0, colonPos);
-    for (char c : key) {
-      unsigned char uc = static_cast<unsigned char>(c);
-
-      // reject control chars and separators like space
-      if (uc <= 32 || uc == 127 || c == ':') {
-        return (setError(400), false);
-      }
-    }
     std::string value = line.substr(colonPos + 1);
 
     std::size_t start = value.find_first_not_of(" \t");
@@ -271,16 +319,24 @@ bool HttpRequest::parseHeaders() {
       value.clear();
     else
       value = value.substr(start, end - start + 1);
+
+    for (char c : key) {
+      unsigned char uc = static_cast<unsigned char>(c);
+      if (uc <= 32 || uc == 127)
+        return (setError(400), false);
+    }
+
     for (char c : value) {
       unsigned char uc = static_cast<unsigned char>(c);
-      if (uc < 32 || uc == 127) {
+      if (uc < 32 || uc == 127)
         return (setError(400), false);
-      }
     }
-    storeHeader(key, value);
+
+    storeHeader(std::move(key), std::move(value));
     if (_state == RequestParseState::Error)
       return false;
   }
+
   return processHeaders();
 }
 
@@ -319,15 +375,44 @@ bool HttpRequest::processHeaders() {
 
   if (auto te = header("Transfer-Encoding")) {
     std::string val(te->begin(), te->end());
-    for (char &c : val)
-      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-    if (val == "chunked") {
+    val.erase(std::remove_if(val.begin(), val.end(),
+                             [](unsigned char ch) { return std::isspace(ch); }),
+              val.end());
+
+    std::string::size_type start = 0;
+    bool sawChunked = false;
+
+    while (start <= val.size()) {
+      std::string::size_type comma = val.find(',', start);
+      std::string token =
+          val.substr(start, comma == std::string::npos ? std::string::npos
+                                                       : comma - start);
+
+      if (token.empty())
+        return (setError(400), false);
+
+      for (char &c : token)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+      if (token == "chunked") {
+        sawChunked = true;
+      } else {
+        return (setError(501), false);
+      }
+
+      if (comma == std::string::npos)
+        break;
+      start = comma + 1;
+    }
+
+    if (sawChunked) {
       _bodyMode = BodyTransferMode::Chunked;
       _state = RequestParseState::ChunkSize;
       return true;
     }
-    return (setError(400), false);
+
+    return (setError(501), false);
   }
 
   if (auto cl = header("Content-Length")) {
@@ -352,6 +437,9 @@ bool HttpRequest::processHeaders() {
     return true;
   }
 
+  if (_method == HttpMethod::Post) // not sure here
+    return (setError(411), false);
+
   _bodyMode = BodyTransferMode::None;
   _state = RequestParseState::Complete;
   return true;
@@ -360,7 +448,7 @@ bool HttpRequest::processHeaders() {
 // optional a value that may or may not exist
 std::optional<std::string_view>
 HttpRequest::header(std::string_view name) const noexcept {
-  auto it = _headers.find(name);
+  auto it = _headers.find(std::string(name));
   if (it == _headers.end())
     return std::nullopt;
   return std::string_view(it->second);
@@ -384,11 +472,16 @@ bool HttpRequest::parseContentLengthBody() {
   _rawBuffer.erase(0, toRead);
 
   _bodyBytesReceived += toRead;
-  if (_bodyBytesReceived == _bodyBytesExpected) {
-    _state = RequestParseState::Complete;
-    return true;
-  }
-  return false;
+
+  if (_bodyBytesReceived < _bodyBytesExpected)
+    return false;
+  _state = RequestParseState::Complete;
+  return true;
+  //   if (_bodyBytesReceived == _bodyBytesExpected) {
+  //     _state = RequestParseState::Complete;
+  //     return true;
+  //   }
+  //   return false;
 }
 
 bool HttpRequest::parseChunkedBody() {
@@ -403,9 +496,12 @@ bool HttpRequest::parseChunkedBody() {
       std::string sizeStr = _rawBuffer.substr(0, pos);
       _rawBuffer.erase(0, pos + 2);
 
+      if (sizeStr.empty())
+        return (setError(400), false);
+
       char *endptr = nullptr;
       unsigned long size = std::strtoul(sizeStr.c_str(), &endptr, 16);
-      if (*endptr != '\0')
+      if (*endptr != '\0' || (size == 0 && sizeStr != "0"))
         return (setError(400), false);
 
       _currentChunkSize = size;
@@ -426,11 +522,14 @@ bool HttpRequest::parseChunkedBody() {
       if (_maxBodySize > 0 && _body.size() + _currentChunkSize > _maxBodySize)
         return (setError(413), false);
       // appedn chunk data
+
       _body.append(_rawBuffer.substr(0, _currentChunkSize));
       _rawBuffer.erase(0, _currentChunkSize);
+
       // check trailing crlf
-      if (_rawBuffer.substr(0, 2) != "\r\n")
+      if (_rawBuffer.size() < 2 || _rawBuffer.substr(0, 2) != "\r\n")
         return (setError(400), false);
+
       _rawBuffer.erase(0, 2);
       // to the next chunk
       _state = RequestParseState::ChunkSize;
@@ -440,9 +539,17 @@ bool HttpRequest::parseChunkedBody() {
       // expecting final crlf
       if (_rawBuffer.size() < 2)
         return false;
-      if (_rawBuffer.substr(0, 2) != "\r\n")
-        return (setError(400), false);
-      _rawBuffer.erase(0, 2);
+      if (_rawBuffer.substr(0, 2) != "\r\n") {
+        std::size_t trailerEnd = _rawBuffer.find("\r\n\r\n");
+        if (trailerEnd == std::string::npos) {
+          if (_rawBuffer.size() > 1000)
+            return (setError(400), false);
+          return false;
+        }
+        _rawBuffer.erase(0, trailerEnd + 4);
+      } else {
+        _rawBuffer.erase(0, 2);
+      }
       _state = RequestParseState::Complete;
       return true;
     }
@@ -468,7 +575,7 @@ std::size_t HttpRequest::bufferedByteCount() const noexcept {
 }
 
 bool HttpRequest::hasHeader(std::string_view name) const noexcept {
-  return _headers.find(name) != _headers.end();
+  return _headers.find(std::string(name)) != _headers.end();
 }
 
 void HttpRequest::setError(int statusCode) noexcept {
@@ -514,6 +621,10 @@ BodyTransferMode HttpRequest::bodyTransferMode() const noexcept {
 
 void HttpRequest::setMaxBodySize(std::size_t bytes) noexcept {
   _maxBodySize = bytes;
+}
+
+void HttpRequest::setMaxHeaderSize(std::size_t bytes) noexcept {
+  _maxHeaderSize = bytes;
 }
 
 void HttpRequest::reset() noexcept {
