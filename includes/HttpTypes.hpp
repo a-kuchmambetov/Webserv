@@ -52,6 +52,15 @@ enum class IoResult : std::uint8_t {
   Error,
 };
 
+enum class FdType : std::uint8_t {
+  Listener,
+  Client,
+  CgiStdIn,
+  CgiStdOut,
+  Signal,
+  Unknown,
+};
+
 enum class ConnectionState : std::uint8_t {
   ReadingRequest,
   ProcessingRequest,

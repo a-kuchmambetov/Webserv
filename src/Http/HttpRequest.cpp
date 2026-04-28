@@ -11,6 +11,20 @@
 
 namespace webserv {
 
+namespace {
+
+HttpMethod parseRequestMethod(std::string_view method) noexcept {
+  if (method == "GET")
+    return HttpMethod::Get;
+  if (method == "POST")
+    return HttpMethod::Post;
+  if (method == "DELETE")
+    return HttpMethod::Delete;
+  return HttpMethod::Unknown;
+}
+
+} // namespace
+
 // appends data into _rawBuffer
 // state machine loop situation
 // stops when needmoredata, error, complete
@@ -95,7 +109,7 @@ bool HttpRequest::parseStartLine() {
   _httpVersion = line.substr(sp2 + 1);
 
   // validation
-  _method = parseHttpMethod(_methodText);
+  _method = parseRequestMethod(_methodText);
   if (_method == HttpMethod::Unknown)
     return (setError(400), false);
   if (_httpVersion != "HTTP/1.1") // only 1.1 ?
@@ -108,17 +122,6 @@ bool HttpRequest::parseStartLine() {
 
   _state = RequestParseState::Headers;
   return true;
-}
-
-// case sensitive
-HttpMethod parseHttpMethod(std::string_view method) noexcept {
-  if (method == "GET")
-    return HttpMethod::Get;
-  if (method == "POST")
-    return HttpMethod::Post;
-  if (method == "DELETE")
-    return HttpMethod::Delete;
-  return HttpMethod::Unknown;
 }
 
 void HttpRequest::parseTarget() {

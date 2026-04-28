@@ -1,0 +1,14 @@
+.markdown-body h1,
+h2,
+h3 {
+  color: #d96a71 !important;
+}
+
+.markdown-body a {
+  color: #5faae8 !important;
+}
+
+.markdown-body code {
+  color: #8eb573 !important;
+  border-radius: 0.35em !important;
+}

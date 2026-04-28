@@ -2,3 +2,13 @@
 *.d
 *.o
 webserv
+.codex
+*.pdf
+
+# Ignore all .md files except README.md
+*.md
+![Rr][Ee][Aa][Dd][Mm][Ee].md 
+
+# Folder for storing local files
+.local
+tests/bin

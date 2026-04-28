@@ -41,7 +41,6 @@ public:
   [[nodiscard]] bool keepAliveRequested() const noexcept;
   [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
 
-
   static bool isHex(char c);
   bool isValidPercent(std::string_view value);
 
@@ -58,7 +57,9 @@ private:
   void setError(int statusCode) noexcept;
   void storeHeader(std::string key, std::string value);
 
-  [[nodiscard]] static std::string decodeUriComponent(std::string_view value, DecodeMode mode); // changed, notify guys
+  [[nodiscard]] static std::string
+  decodeUriComponent(std::string_view value,
+                     DecodeMode mode); // changed, notify guys
   [[nodiscard]] static std::string normalizePath(std::string_view path);
 
   RequestParseState _state{RequestParseState::StartLine};
