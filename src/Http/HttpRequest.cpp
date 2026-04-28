@@ -129,14 +129,11 @@ bool HttpRequest::parseStartLine() {
   std::string line = _rawBuffer.substr(0, pos);
   _rawBuffer.erase(0, pos + 2);
 
-  // Check for completely empty line
   if (line.empty())
     return (setError(400), false);
 
-  // Count spaces more carefully for malformed lines
   int spaceCount = std::count(line.begin(), line.end(), ' ');
 
-  // If there are not exactly 2 spaces, it's malformed (400)
   if (spaceCount != 2) {
     return (setError(400), false);
   }
@@ -151,11 +148,9 @@ bool HttpRequest::parseStartLine() {
   _target = line.substr(sp1 + 1, sp2 - sp1 - 1);
   _httpVersion = line.substr(sp2 + 1);
 
-  // Check for empty parts
   if (_methodText.empty() || _target.empty() || _httpVersion.empty())
     return (setError(400), false);
 
-  // all up is TEST TRY
   // validation of version
   if (_httpVersion.rfind("HTTP/", 0) != 0)
     return (setError(400), false);
