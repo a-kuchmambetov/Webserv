@@ -255,6 +255,14 @@ bool HttpRequest::parseHeaders() {
       return (setError(400), false);
 
     std::string key = line.substr(0, colonPos);
+    for (char c : key) {
+      unsigned char uc = static_cast<unsigned char>(c);
+
+      // reject control chars and separators like space
+      if (uc <= 32 || uc == 127 || c == ':') {
+        return (setError(400), false);
+      }
+    }
     std::string value = line.substr(colonPos + 1);
 
     std::size_t start = value.find_first_not_of(" \t");
@@ -263,7 +271,12 @@ bool HttpRequest::parseHeaders() {
       value.clear();
     else
       value = value.substr(start, end - start + 1);
-
+    for (char c : value) {
+      unsigned char uc = static_cast<unsigned char>(c);
+      if (uc < 32 || uc == 127) {
+        return (setError(400), false);
+      }
+    }
     storeHeader(key, value);
     if (_state == RequestParseState::Error)
       return false;
