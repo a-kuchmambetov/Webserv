@@ -291,7 +291,7 @@ bool HttpRequest::processHeaders() {
     if (val == "chunked") {
       _bodyMode = BodyTransferMode::Chunked;
       _state = RequestParseState::ChunkSize;
-      return true; // ✅ IGNORE Content-Length completely
+      return true; 
     }
     return (setError(400), false);
   }
