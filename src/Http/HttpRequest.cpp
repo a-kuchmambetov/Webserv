@@ -112,8 +112,26 @@ bool HttpRequest::parseStartLine() {
   _method = parseRequestMethod(_methodText);
   if (_method == HttpMethod::Unknown)
     return (setError(400), false);
-  if (_httpVersion != "HTTP/1.1") // only 1.1 ?
+  // validation of version
+  if (_httpVersion.rfind("HTTP/", 0) != 0)
+    return (setError(400), false);
+  std::string version = _httpVersion.substr(5);
+  std::size_t dot = version.find('.');
+  if (dot == std::string::npos)
+    return (setError(400), false);
+  std::string left = version.substr(0, dot);
+  std::string right = version.substr(dot + 1);
+  if (left.empty() || right.empty())
+    return (setError(400), false);
+  for (char c : left)
+    if (!std::isdigit(static_cast<unsigned char>(c)))
+      return (setError(400), false);
+  for (char c : right)
+    if (!std::isdigit(static_cast<unsigned char>(c)))
+      return (setError(400), false);
+  if (_httpVersion != "HTTP/1.1")
     return (setError(505), false);
+
   if (_target.empty() || _target[0] != '/')
     return (setError(400), false);
   parseTarget();
@@ -294,7 +312,7 @@ bool HttpRequest::processHeaders() {
     if (val == "chunked") {
       _bodyMode = BodyTransferMode::Chunked;
       _state = RequestParseState::ChunkSize;
-      return true; 
+      return true;
     }
     return (setError(400), false);
   }
