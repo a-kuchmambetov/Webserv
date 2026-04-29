@@ -325,7 +325,7 @@ TEST(HttpRequestTest, RequestHeaderTooLarge) {
                     "hello";
   webserv::HttpRequest req;
   // IMPORTANT: we need to implement this
-  // req.setMaxHeaderSize(1);
+  //req.setMaxHeaderSize(1);
   req.append(raw);
 
   EXPECT_EQ(req.errorStatus(), 431);

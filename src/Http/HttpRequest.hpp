@@ -43,6 +43,8 @@ public:
 
   static bool isHex(char c);
   bool isValidPercent(std::string_view value);
+  bool isValidHeaderName(std::string_view name) const;
+  bool isValidHeaderValue(std::string_view value) const;
 
   void setMaxBodySize(std::size_t bytes) noexcept;
   void setMaxHeaderSize(std::size_t bytes) noexcept; // addded
@@ -54,6 +56,9 @@ private:
   bool parseBody();
   bool parseContentLengthBody();
   bool parseChunkedBody();
+  bool parseChunkSize();
+  bool parseChunkData();
+  bool parseChunkTrailer();
   void parseTarget();
   void setError(int statusCode) noexcept;
   void storeHeader(std::string key, std::string value);
