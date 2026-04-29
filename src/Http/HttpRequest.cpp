@@ -395,12 +395,115 @@ void HttpRequest::storeHeader(std::string key, std::string value) {
 
 // transfer-encoding -> chunked content length must me ignored
 
+// bool HttpRequest::processHeaders() {
+//   // Host required (HTTP/1.1)
+//   auto host = header("Host");
+//   if (!host || host->empty())
+//     return (setError(400), false);
+
+//   _keepAlive = true;
+
+//   if (auto conn = header("Connection")) {
+//     std::string val(conn->begin(), conn->end());
+//     for (char &c : val)
+//       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+//     if (val == "close")
+//       _keepAlive = false;
+//   }
+
+//   if (auto te = header("Transfer-Encoding")) {
+//     std::string val(te->begin(), te->end());
+
+//     val.erase(std::remove_if(val.begin(), val.end(),
+//                              [](unsigned char ch) { return std::isspace(ch);
+//                              }),
+//               val.end());
+
+//     std::string::size_type start = 0;
+//     bool sawChunked = false;
+
+//     while (start <= val.size()) {
+//       std::string::size_type comma = val.find(',', start);
+//       std::string token =
+//           val.substr(start, comma == std::string::npos ? std::string::npos
+//                                                        : comma - start);
+
+//       if (token.empty())
+//         return (setError(400), false);
+
+//       for (char &c : token)
+//         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+//       if (token == "chunked") {
+//         sawChunked = true;
+//       } else {
+//         return (setError(501), false);
+//       }
+
+//       if (comma == std::string::npos)
+//         break;
+//       start = comma + 1;
+//     }
+
+//     if (sawChunked) {
+//       _bodyMode = BodyTransferMode::Chunked;
+//       _state = RequestParseState::ChunkSize;
+//       return true;
+//     }
+
+//     return (setError(501), false);
+//   }
+
+//   if (auto cl = header("Content-Length")) {
+//     char *endptr = nullptr;
+//     unsigned long length =
+//         std::strtoul(std::string(cl->begin(), cl->end()).c_str(), &endptr,
+//         10);
+
+//     if (*endptr != '\0')
+//       return (setError(400), false);
+
+//     if (_maxBodySize > 0 && length > _maxBodySize)
+//       return (setError(413), false);
+
+//     _bodyBytesExpected = static_cast<std::size_t>(length);
+//     _bodyMode = BodyTransferMode::ContentLength;
+
+//     if (_bodyBytesExpected == 0)
+//       _state = RequestParseState::Complete;
+//     else
+//       _state = RequestParseState::Body;
+
+//     return true;
+//   }
+
+//   if (_method == HttpMethod::Post) // not sure here
+//     return (setError(411), false);
+
+//   _bodyMode = BodyTransferMode::None;
+//   _state = RequestParseState::Complete;
+//   return true;
+// }
+
 bool HttpRequest::processHeaders() {
-  // Host required (HTTP/1.1)
+  if (!validateMandotaryHeader())
+    return false;
+  parseConnectionHeader();
+
+  if (!resolveBodyMode())
+    return false;
+  return true;
+}
+
+bool HttpRequest::validateMandotaryHeader() {
   auto host = header("Host");
   if (!host || host->empty())
     return (setError(400), false);
+  return true;
+}
 
+void HttpRequest::parseConnectionHeader() {
   _keepAlive = true;
 
   if (auto conn = header("Connection")) {
@@ -411,7 +514,9 @@ bool HttpRequest::processHeaders() {
     if (val == "close")
       _keepAlive = false;
   }
+}
 
+bool HttpRequest::resolveBodyMode() {
   if (auto te = header("Transfer-Encoding")) {
     std::string val(te->begin(), te->end());
 
@@ -444,7 +549,6 @@ bool HttpRequest::processHeaders() {
         break;
       start = comma + 1;
     }
-
     if (sawChunked) {
       _bodyMode = BodyTransferMode::Chunked;
       _state = RequestParseState::ChunkSize;
@@ -453,7 +557,6 @@ bool HttpRequest::processHeaders() {
 
     return (setError(501), false);
   }
-
   if (auto cl = header("Content-Length")) {
     char *endptr = nullptr;
     unsigned long length =
@@ -468,15 +571,13 @@ bool HttpRequest::processHeaders() {
     _bodyBytesExpected = static_cast<std::size_t>(length);
     _bodyMode = BodyTransferMode::ContentLength;
 
-    if (_bodyBytesExpected == 0)
-      _state = RequestParseState::Complete;
-    else
-      _state = RequestParseState::Body;
+    _state = (_bodyBytesExpected == 0) ? RequestParseState::Complete
+                                       : RequestParseState::Body;
 
     return true;
   }
 
-  if (_method == HttpMethod::Post) // not sure here
+  if (_method == HttpMethod::Post)
     return (setError(411), false);
 
   _bodyMode = BodyTransferMode::None;

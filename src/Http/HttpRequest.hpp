@@ -53,6 +53,10 @@ private:
   bool parseStartLine();
   bool parseHeaders();
   bool processHeaders();
+  bool validateMandotaryHeader(); // new
+  void parseConnectionHeader(); // new
+  bool resolveBodyMode(); // new
+
   bool parseBody();
   bool parseContentLengthBody();
   bool parseChunkedBody();
