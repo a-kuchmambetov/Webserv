@@ -65,10 +65,18 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
     case RequestParseState::ChunkSize:
     case RequestParseState::ChunkData:
     case RequestParseState::ChunkTrailer:
-      if (!parseChunkedBody())
-        return (_state == RequestParseState::Error)
-                   ? ParseOutcome::Error
-                   : ParseOutcome::NeedMoreData;
+      if (!parseChunkedBody()) {
+        if (_state == RequestParseState::Error)
+          return ParseOutcome::Error;
+        if (_bodyMode == BodyTransferMode::Chunked &&
+            (_state == RequestParseState::ChunkSize ||
+             _state == RequestParseState::ChunkData) &&
+            _rawBuffer.empty()) {
+          setError(400);
+          return ParseOutcome::Error;
+        }
+        return ParseOutcome::NeedMoreData;
+      }
       break;
     case RequestParseState::Complete:
       return ParseOutcome::Complete;
