@@ -1,6 +1,7 @@
 #include "HttpRequest.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
@@ -68,13 +69,13 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
       if (!parseChunkedBody()) {
         if (_state == RequestParseState::Error)
           return ParseOutcome::Error;
-        if (_bodyMode == BodyTransferMode::Chunked &&
-            (_state == RequestParseState::ChunkSize ||
-             _state == RequestParseState::ChunkData) &&
-            _rawBuffer.empty()) {
-          setError(400);
-          return ParseOutcome::Error;
-        }
+        // if (_bodyMode == BodyTransferMode::Chunked &&
+        //     (_state == RequestParseState::ChunkSize ||
+        //      _state == RequestParseState::ChunkData) &&
+        //     _rawBuffer.empty()) {
+        //   setError(400);
+        //   return ParseOutcome::Error;
+        // }
         return ParseOutcome::NeedMoreData;
       }
       break;
@@ -103,34 +104,7 @@ headers too large (optional)	431
 */
 
 // extracting and validating request line
-// bool HttpRequest::parseStartLine() {
-//   std::string::size_type pos = _rawBuffer.find("\r\n");
-//   if (pos == std::string::npos)
-//     return false; // still need to wait for more data from T
 
-//   // extract first line & removes from buffer
-//   std::string line = _rawBuffer.substr(0, pos);
-//   _rawBuffer.erase(0, pos + 2);
-
-//   // space checks
-//   if (line.empty() || std::count(line.begin(), line.end(), ' ') != 2 ||
-//       line.front() == ' ' || line.back() == ' ')
-//     return (setError(400), false);
-
-//   // space pos
-//   std::string::size_type sp1 = line.find(' ');
-//   std::string::size_type sp2 = line.find(' ', sp1 + 1);
-
-//   // extract parts
-//   _methodText = line.substr(0, sp1);
-//   _target = line.substr(sp1 + 1, sp2 - sp1 - 1);
-//   _httpVersion = line.substr(sp2 + 1);
-
-//   // validation
-
-//   _method = parseRequestMethod(_methodText);
-//   if (_method == HttpMethod::Unknown)
-//     return (setError(501), false);
 bool HttpRequest::parseStartLine() {
   std::string::size_type pos = _rawBuffer.find("\r\n");
   if (pos == std::string::npos)
@@ -362,129 +336,23 @@ bool HttpRequest::isValidHeaderValue(std::string_view value) const {
 // case insensitive
 // stores headers
 // rejects CL H TE if they appear more than once
+
 void HttpRequest::storeHeader(std::string key, std::string value) {
-  if (key == "Content-Length" || key == "Host" || key == "Transfer-Encoding") {
-    if (_headers.find(key) != _headers.end()) {
+  std::string normalized = normalizeHeaderName(key);
+
+  if (_headers.find(normalized) != _headers.end()) {
+    if (normalized == "Content-Length" ||
+        normalized == "Host" ||
+        normalized == "Transfer-Encoding") {
       setError(400);
       return;
     }
   }
 
-  _headers[std::move(key)] = std::move(value);
+  _headers[std::move(normalized)] = std::move(value);
 }
-// void HttpRequest::storeHeader(std::string key, std::string value) {
-//   auto it = _headers.find(key);
-
-//   std::string lowerKey = key;
-//   std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
-//                  [](unsigned char c) { return std::tolower(c); });
-
-//   if (it != _headers.end()) {
-//     if (lowerKey == "content-length" || lowerKey == "host" ||
-//         lowerKey == "transfer-encoding") {
-//       setError(400);
-//       return;
-//     }
-
-//     it->second = std::move(value);
-//     return;
-//   }
-
-//   _headers.emplace(std::move(key), std::move(value));
-// }
 
 // transfer-encoding -> chunked content length must me ignored
-
-// bool HttpRequest::processHeaders() {
-//   // Host required (HTTP/1.1)
-//   auto host = header("Host");
-//   if (!host || host->empty())
-//     return (setError(400), false);
-
-//   _keepAlive = true;
-
-//   if (auto conn = header("Connection")) {
-//     std::string val(conn->begin(), conn->end());
-//     for (char &c : val)
-//       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-//     if (val == "close")
-//       _keepAlive = false;
-//   }
-
-//   if (auto te = header("Transfer-Encoding")) {
-//     std::string val(te->begin(), te->end());
-
-//     val.erase(std::remove_if(val.begin(), val.end(),
-//                              [](unsigned char ch) { return std::isspace(ch);
-//                              }),
-//               val.end());
-
-//     std::string::size_type start = 0;
-//     bool sawChunked = false;
-
-//     while (start <= val.size()) {
-//       std::string::size_type comma = val.find(',', start);
-//       std::string token =
-//           val.substr(start, comma == std::string::npos ? std::string::npos
-//                                                        : comma - start);
-
-//       if (token.empty())
-//         return (setError(400), false);
-
-//       for (char &c : token)
-//         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-//       if (token == "chunked") {
-//         sawChunked = true;
-//       } else {
-//         return (setError(501), false);
-//       }
-
-//       if (comma == std::string::npos)
-//         break;
-//       start = comma + 1;
-//     }
-
-//     if (sawChunked) {
-//       _bodyMode = BodyTransferMode::Chunked;
-//       _state = RequestParseState::ChunkSize;
-//       return true;
-//     }
-
-//     return (setError(501), false);
-//   }
-
-//   if (auto cl = header("Content-Length")) {
-//     char *endptr = nullptr;
-//     unsigned long length =
-//         std::strtoul(std::string(cl->begin(), cl->end()).c_str(), &endptr,
-//         10);
-
-//     if (*endptr != '\0')
-//       return (setError(400), false);
-
-//     if (_maxBodySize > 0 && length > _maxBodySize)
-//       return (setError(413), false);
-
-//     _bodyBytesExpected = static_cast<std::size_t>(length);
-//     _bodyMode = BodyTransferMode::ContentLength;
-
-//     if (_bodyBytesExpected == 0)
-//       _state = RequestParseState::Complete;
-//     else
-//       _state = RequestParseState::Body;
-
-//     return true;
-//   }
-
-//   if (_method == HttpMethod::Post) // not sure here
-//     return (setError(411), false);
-
-//   _bodyMode = BodyTransferMode::None;
-//   _state = RequestParseState::Complete;
-//   return true;
-// }
 
 bool HttpRequest::processHeaders() {
   if (!validateMandotaryHeader())
@@ -518,6 +386,9 @@ void HttpRequest::parseConnectionHeader() {
 
 bool HttpRequest::resolveBodyMode() {
   if (auto te = header("Transfer-Encoding")) {
+    // reject if both TE and CL
+    if (header("Content-Length"))
+      return (setError(400), false);
     std::string val(te->begin(), te->end());
 
     val.erase(std::remove_if(val.begin(), val.end(),
@@ -558,11 +429,22 @@ bool HttpRequest::resolveBodyMode() {
     return (setError(501), false);
   }
   if (auto cl = header("Content-Length")) {
-    char *endptr = nullptr;
-    unsigned long length =
-        std::strtoul(std::string(cl->begin(), cl->end()).c_str(), &endptr, 10);
+    std::string clStr(cl->begin(), cl->end());
 
-    if (*endptr != '\0')
+    if (clStr.empty()) {
+      return (setError(400), false);
+    }
+    for (char c : clStr) {
+      if (!std::isdigit(static_cast<unsigned char>(c))) {
+        return (setError(400), false);
+      }
+    }
+
+    char *endptr = nullptr;
+    errno = 0;
+    unsigned long length = std::strtoul(clStr.c_str(), &endptr, 10);
+
+    if (errno == ERANGE || *endptr != '\0')
       return (setError(400), false);
 
     if (_maxBodySize > 0 && length > _maxBodySize)
@@ -652,8 +534,9 @@ bool HttpRequest::parseChunkSize() {
     return (setError(400), false);
 
   char *endptr = nullptr;
+  errno = 0;
   unsigned long size = std::strtoul(sizeStr.c_str(), &endptr, 16);
-  if (*endptr != '\0' || (size == 0 && sizeStr != "0"))
+  if (*endptr != '\0' || errno == ERANGE)
     return (setError(400), false);
 
   _currentChunkSize = size;

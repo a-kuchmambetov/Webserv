@@ -325,7 +325,7 @@ TEST(HttpRequestTest, RequestHeaderTooLarge) {
                     "hello";
   webserv::HttpRequest req;
   // IMPORTANT: we need to implement this
-  //req.setMaxHeaderSize(1);
+  // req.setMaxHeaderSize(1);
   req.append(raw);
 
   EXPECT_EQ(req.errorStatus(), 431);
@@ -369,6 +369,178 @@ TEST(HttpRequestTest, HttpVersionNotSupported) {
   req.append(raw);
 
   EXPECT_EQ(req.errorStatus(), 505);
+}
+
+// maxadded
+TEST(HttpRequestTest, MissingHttpVersion) {
+  std::string raw = "GET /index\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, InvalidHttpPrefix) {
+  std::string raw = "GET /index HTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, TooManyTokensInRequestLine) {
+  std::string raw = "GET /index HTTP/1.1 EXTRA\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, DuplicateHostHeader) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    "Host: a\r\n"
+                    "Host: b\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, ColonOnlyHeader) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    ": value\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, EmptyHeaderValueAllowed) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "X-Test:\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_TRUE(req.isComplete());
+}
+
+TEST(HttpRequestTest, NegativeContentLength) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Content-Length: -5\r\n"
+                    "\r\n"
+                    "abc";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, ContentLengthOverflow) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Content-Length: 999999999999999999999\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, EmptyChunkSize) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, InvalidHexChunkSize) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "ZZ\r\n"
+                    "data\r\n"
+                    "0\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, MissingChunkDataCRLF) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "5\r\n"
+                    "hello"
+                    "0\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, UnknownMethod) {
+  std::string raw = "TRACE / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 501);
+}
+
+TEST(HttpRequestTest, PostWithoutBodyHeaders) {
+  std::string raw = "POST / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 411);
+}
+
+TEST(HttpRequestTest, RequestLineLeadingSpace) {
+  std::string raw = " GET / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 400);
 }
 
 // 400	Extra malformed data after request	Especially if you do not support

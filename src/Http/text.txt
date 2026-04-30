@@ -1,0 +1,56 @@
+
+
+Problem: When parseChunkedBody() needs more data but the buffer is empty, it incorrectly treats this as a malformed request and returns 400. In reality, an empty buffer between recv() calls is normal—it just means "wait for more socket data."
+
+Why it's wrong: The parser conflates "incomplete data in this append call" with "malformed chunk format." These are different states. An empty buffer is NeedMoreData, not an error.
+
+
+
+  while (true) {
+    switch (_state) {
+    case RequestParseState::StartLine:
+      if (!parseStartLine()) {
+        return (_state == RequestParseState::Error)
+                   ? ParseOutcome::Error
+                   : ParseOutcome::NeedMoreData;
+      }
+      break;
+    case RequestParseState::Headers:
+      if (!parseHeaders()) {
+        return (_state == RequestParseState::Error)
+                   ? ParseOutcome::Error
+                   : ParseOutcome::NeedMoreData;
+      }
+      break;
+    case RequestParseState::Body:
+      if (!parseBody())
+        return ParseOutcome::NeedMoreData;
+      break;
+    case RequestParseState::ChunkSize:
+    case RequestParseState::ChunkData:
+    case RequestParseState::ChunkTrailer:
+      if (!parseChunkedBody()) {
+        if (_state == RequestParseState::Error)
+          return ParseOutcome::Error;
+        // if (_bodyMode == BodyTransferMode::Chunked &&
+        //     (_state == RequestParseState::ChunkSize ||
+        //      _state == RequestParseState::ChunkData) &&
+        //     _rawBuffer.empty()) {
+        //   setError(400);
+        //   return ParseOutcome::Error;
+        // }
+        return ParseOutcome::NeedMoreData;
+      }
+      break;
+    case RequestParseState::Complete:
+      return ParseOutcome::Complete;
+    case RequestParseState::Error:
+      return ParseOutcome::Error;
+    default:
+      setError(500);
+      return ParseOutcome::Error;
+    }
+  }
+
+
+
