@@ -36,15 +36,6 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
                                                  : ParseOutcome::Error;
   _rawBuffer.append(bytes);
 
-  // not sure if header size needs to be here 
-  if (_maxHeaderSize > 0 && _state != RequestParseState::Complete) {
-    if (_rawBuffer.size() > _maxHeaderSize) {
-      if (_rawBuffer.find("\r\n\r\n") == std::string::npos) {
-        setError(431);
-        return ParseOutcome::Error;
-      }
-    }
-  }
   while (true) {
     switch (_state) {
     case RequestParseState::StartLine:
