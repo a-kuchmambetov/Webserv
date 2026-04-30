@@ -35,6 +35,8 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
     return _state == RequestParseState::Complete ? ParseOutcome::Complete
                                                  : ParseOutcome::Error;
   _rawBuffer.append(bytes);
+
+  // not sure if header size needs to be here 
   if (_maxHeaderSize > 0 && _state != RequestParseState::Complete) {
     if (_rawBuffer.size() > _maxHeaderSize) {
       if (_rawBuffer.find("\r\n\r\n") == std::string::npos) {
@@ -105,66 +107,102 @@ headers too large (optional)	431
 
 // extracting and validating request line
 
+
 bool HttpRequest::parseStartLine() {
-  std::string::size_type pos = _rawBuffer.find("\r\n");
+  std::string line;
+  if (!extractLine(line))
+    return false;
+
+  std::string method, target, version;
+  if (!splitStartLine(line, method, target, version))
+    return false;
+  if (!validateHttpVersion(version))
+    return false;
+  if (!validateTarget(target))
+    return false;
+  if (!applyMethod(method))
+    return false;
+
+  _methodText = method;
+  _target = target;
+  _httpVersion = version;
+
+  parseTarget();
+  if (_state == RequestParseState::Error)
+    return false;
+  _state = RequestParseState::Headers;
+  return true;
+}
+
+bool HttpRequest::extractLine(std::string &line) {
+  std::size_t pos = _rawBuffer.find("\r\n");
   if (pos == std::string::npos)
     return false;
 
-  std::string line = _rawBuffer.substr(0, pos);
+  line = _rawBuffer.substr(0, pos);
   _rawBuffer.erase(0, pos + 2);
 
   if (line.empty())
     return (setError(400), false);
 
+  return true;
+}
+
+bool HttpRequest::splitStartLine(std::string &line, std::string &method,
+                                 std::string &target, std::string &version) {
   int spaceCount = std::count(line.begin(), line.end(), ' ');
 
-  if (spaceCount != 2) {
+  if (spaceCount != 2 || line.front() == ' ' || line.back() == ' ')
     return (setError(400), false);
-  }
-
-  if (line.front() == ' ' || line.back() == ' ')
-    return (setError(400), false);
-
   std::string::size_type sp1 = line.find(' ');
   std::string::size_type sp2 = line.find(' ', sp1 + 1);
 
-  _methodText = line.substr(0, sp1);
-  _target = line.substr(sp1 + 1, sp2 - sp1 - 1);
-  _httpVersion = line.substr(sp2 + 1);
+  method = line.substr(0, sp1);
+  target = line.substr(sp1 + 1, sp2 - sp1 - 1);
+  version = line.substr(sp2 + 1);
 
-  if (_methodText.empty() || _target.empty() || _httpVersion.empty())
+  if (method.empty() || target.empty() || version.empty())
     return (setError(400), false);
 
-  // validation of version
-  if (_httpVersion.rfind("HTTP/", 0) != 0)
+  return true;
+}
+
+bool HttpRequest::validateHttpVersion(std::string &version) {
+  if (version.rfind("HTTP/", 0) != 0)
     return (setError(400), false);
-  std::string version = _httpVersion.substr(5);
-  std::size_t dot = version.find('.');
+
+  std::string ver = version.substr(5);
+  std::size_t dot = ver.find('.');
   if (dot == std::string::npos)
     return (setError(400), false);
-  std::string left = version.substr(0, dot);
-  std::string right = version.substr(dot + 1);
+
+  std::string left = ver.substr(0, dot);
+  std::string right = ver.substr(dot + 1);
   if (left.empty() || right.empty())
     return (setError(400), false);
+
   for (char c : left)
     if (!std::isdigit(static_cast<unsigned char>(c)))
       return (setError(400), false);
   for (char c : right)
     if (!std::isdigit(static_cast<unsigned char>(c)))
       return (setError(400), false);
-  if (_httpVersion != "HTTP/1.1")
+
+  if (version != "HTTP/1.1")
     return (setError(505), false);
+  return true;
+}
 
-  if (_target.empty() || _target[0] != '/')
+bool HttpRequest::validateTarget(std::string &target) {
+  if (target.empty() || target[0] != '/')
     return (setError(400), false);
-  parseTarget();
-  if (_state == RequestParseState::Error)
-    return false;
-  _method = parseRequestMethod(_methodText);
-  if (_method == HttpMethod::Unknown)
-    return (setError(501), false); // 501
+  return true;
+}
 
-  _state = RequestParseState::Headers;
+bool HttpRequest::applyMethod(std::string &method) {
+  _method = parseRequestMethod(method);
+  if (_method == HttpMethod::Unknown)
+    return (setError(501), false);
   return true;
 }
 
@@ -341,8 +379,7 @@ void HttpRequest::storeHeader(std::string key, std::string value) {
   std::string normalized = normalizeHeaderName(key);
 
   if (_headers.find(normalized) != _headers.end()) {
-    if (normalized == "Content-Length" ||
-        normalized == "Host" ||
+    if (normalized == "Content-Length" || normalized == "Host" ||
         normalized == "Transfer-Encoding") {
       setError(400);
       return;
@@ -357,10 +394,12 @@ void HttpRequest::storeHeader(std::string key, std::string value) {
 bool HttpRequest::processHeaders() {
   if (!validateMandotaryHeader())
     return false;
+
   parseConnectionHeader();
 
   if (!resolveBodyMode())
     return false;
+
   return true;
 }
 

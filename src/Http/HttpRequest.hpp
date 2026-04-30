@@ -51,6 +51,11 @@ public:
 
 private:
   bool parseStartLine();
+  bool extractLine(std::string& line);
+  bool splitStartLine(std::string& line, std::string& method, std::string& target, std::string& version);
+  bool validateHttpVersion(std::string& version);
+  bool validateTarget(std::string& target);
+  bool applyMethod(std::string& method);
   bool parseHeaders();
   bool processHeaders();
   bool validateMandotaryHeader(); // new
