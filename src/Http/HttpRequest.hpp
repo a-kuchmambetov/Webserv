@@ -42,6 +42,7 @@ public:
   [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
 
   static bool isHex(char c);
+  static bool decodeHex(char high, char low, char& out);
   bool isValidPercent(std::string_view value);
   bool isValidHeaderName(std::string_view name) const;
   bool isValidHeaderValue(std::string_view value) const;
@@ -58,9 +59,12 @@ private:
   bool applyMethod(std::string& method);
   bool parseHeaders();
   bool processHeaders();
-  bool validateMandotaryHeader(); // new
-  void parseConnectionHeader(); // new
-  bool resolveBodyMode(); // new
+  bool validateMandotaryHeader();
+  void parseConnectionHeader();
+  bool resolveBodyMode();
+  bool handleTransferEncoding();
+  bool handleContentLength();
+  bool finalizeBodyModeFallback();
 
   bool parseBody();
   bool parseContentLengthBody();

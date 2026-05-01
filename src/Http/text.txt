@@ -53,4 +53,91 @@ Why it's wrong: The parser conflates "incomplete data in this append call" with 
   }
 
 
+  // bool HttpRequest::resolveBodyMode() {
+//   if (auto te = header("Transfer-Encoding")) {
+//     // reject if both TE and CL
+//     if (header("Content-Length"))
+//       return (setError(400), false);
+//     std::string val(te->begin(), te->end());
+
+//     val.erase(std::remove_if(val.begin(), val.end(),
+//                              [](unsigned char ch) { return std::isspace(ch);
+//                              }),
+//               val.end());
+
+//     std::string::size_type start = 0;
+//     bool sawChunked = false;
+
+//     while (start <= val.size()) {
+//       std::string::size_type comma = val.find(',', start);
+//       std::string token =
+//           val.substr(start, comma == std::string::npos ? std::string::npos
+//                                                        : comma - start);
+
+//       if (token.empty())
+//         return (setError(400), false);
+
+//       for (char &c : token)
+//         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+//       if (token == "chunked") {
+//         if (sawChunked)
+//           return (setError(400), false);
+//         sawChunked = true;
+//       } else {
+//         return (setError(501), false);
+//       }
+
+//       if (comma == std::string::npos)
+//         break;
+//       start = comma + 1;
+//     }
+//     if (sawChunked) {
+//       _bodyMode = BodyTransferMode::Chunked;
+//       _state = RequestParseState::ChunkSize;
+//       return true;
+//     }
+
+//     return (setError(501), false);
+//   }
+//   if (auto cl = header("Content-Length")) {
+//     std::string clStr(cl->begin(), cl->end());
+
+//     if (clStr.empty()) {
+//       return (setError(400), false);
+//     }
+//     for (char c : clStr) {
+//       if (!std::isdigit(static_cast<unsigned char>(c))) {
+//         return (setError(400), false);
+//       }
+//     }
+
+//     char *endptr = nullptr;
+//     errno = 0;
+//     unsigned long length = std::strtoul(clStr.c_str(), &endptr, 10);
+
+//     if (errno == ERANGE || *endptr != '\0')
+//       return (setError(400), false);
+
+//     if (_maxBodySize > 0 && length > _maxBodySize)
+//       return (setError(413), false);
+
+//     _bodyBytesExpected = static_cast<std::size_t>(length);
+//     _bodyMode = BodyTransferMode::ContentLength;
+
+//     _state = (_bodyBytesExpected == 0) ? RequestParseState::Complete
+//                                        : RequestParseState::Body;
+
+//     return true;
+//   }
+
+//   if (_method == HttpMethod::Post)
+//     return (setError(411), false);
+
+//   _bodyMode = BodyTransferMode::None;
+//   _state = RequestParseState::Complete;
+//   return true;
+// }
+
+
 

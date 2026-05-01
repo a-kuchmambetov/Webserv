@@ -325,7 +325,7 @@ TEST(HttpRequestTest, RequestHeaderTooLarge) {
                     "hello";
   webserv::HttpRequest req;
   // IMPORTANT: we need to implement this
-  // req.setMaxHeaderSize(1);
+  //   req.setMaxHeaderSize(1);
   req.append(raw);
 
   EXPECT_EQ(req.errorStatus(), 431);
@@ -541,6 +541,19 @@ TEST(HttpRequestTest, RequestLineLeadingSpace) {
   req.append(raw);
 
   EXPECT_EQ(req.errorStatus(), 400);
+}
+
+TEST(HttpRequestTest, HeaderTooLargeGet) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.setMaxHeaderSize(1);
+
+  req.append(raw);
+
+  EXPECT_EQ(req.errorStatus(), 431);
 }
 
 // 400	Extra malformed data after request	Especially if you do not support
