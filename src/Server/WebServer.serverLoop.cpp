@@ -1,6 +1,8 @@
 #include "WebServer.hpp"
 #include "Connection.hpp"
+#include "HttpRequest.hpp"
 #include "HttpTypes.hpp"
+#include "LocationConfig.hpp"
 #include "Poller.hpp"
 #include "ServerConfig.hpp"
 #include "UniqueFd.hpp"
@@ -48,8 +50,8 @@ void WebServer::run() {
       // SIGINT/SIGTERM delivered via signalfd
       if (fd == _signalFd.get()) {
         signalfd_siginfo si;
-        while (read(fd, &si, sizeof(si)) == sizeof(si)) {
-        }
+        while (read(fd, &si, sizeof(si)) == sizeof(si))
+          ;
         std::cout << "\n[Server] : shutdown signal received" << std::endl;
         _shouldStop = true;
         break;
@@ -69,7 +71,15 @@ void WebServer::run() {
       }
       // Client response from server
       else if (events[i].events & EPOLLOUT) {
-        writeResponse(fd);
+        const ConnectionState &connState =
+            _connectionFds.at(fd).connection.getState();
+
+        if (connState == ConnectionState::ProcessingRequest)
+          processRequest(fd);
+        else if (connState == ConnectionState::RunningCgi)
+          processCgi(fd);
+        else
+          writeResponse(fd);
       }
     }
 
@@ -177,9 +187,48 @@ void WebServer::readRequest(int fd) {
   }
 }
 
-void WebServer::buildResponse(int fd) {
-  Connection &conn = _connectionFds.at(fd).connection;
-  (void)conn;
+std::string WebServer::getStaticFile(const std::filesystem::path path) {
+  (void)path;
+  return "Temp";
+}
+
+void WebServer::processRequest(int fd) {
+  const ClientSession &session = _connectionFds.at(fd);
+  const ServerConfig &server = *session.defaultServer;
+  const Connection &conn = session.connection;
+  const HttpRequest &request = conn.getRequest();
+  const LocationConfig *location = server.findBestLocation(request.path());
+
+  if (!location)
+    return queueError(fd, 404);
+
+  if (!location->isMethodAllowed(request.method()))
+    return queueMethodNotAllowed(fd, *location);
+
+  if (request.body().size() > server.effectiveClientMaxBodySize(location))
+    return queueError(fd, 413);
+
+  if (location->hasRedirect())
+    return queueRedirect(fd, *location);
+
+  if (isCgiRequest(request, *location))
+    return startCgi(fd, *server, *location);
+
+  switch (request.method()) {
+  case HttpMethod::Get:
+    return handleStaticGet(fd, *server, *location);
+  case HttpMethod::Post:
+    return handleUpload(fd, *server, *location);
+  case HttpMethod::Delete:
+    return handleDelete(fd, *server, *location);
+  default:
+    return queueError(fd, 501);
+  }
+}
+
+void WebServer::processCgi(int fd) {
+  ClientSession &clientSession = _connectionFds.at(fd);
+  (void)clientSession;
 }
 
 void WebServer::writeResponse(int fd) {

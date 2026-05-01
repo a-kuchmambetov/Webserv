@@ -12,3 +12,6 @@ webserv
 # Folder for storing local files
 .local
 tests/bin
+
+# Compiled object files folder
+obj

@@ -1,0 +1,7 @@
+$kind: http-request
+name: Simple get
+url: "{{serverURL}}/"
+method: GET
+settings:
+  protocolVersion: http1
+order: 1777628509347
