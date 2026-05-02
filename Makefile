@@ -60,8 +60,10 @@ re: fclean all
 # --- Tests ---
 TEST_DIR      = tests
 TEST_BIN_DIR  = $(TEST_DIR)/bin
-TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP) src/CGIs/CgiResult.cpp
-TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR) -lgtest -lgtest_main -pthread
+TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP) $(SRC_CGI)
+TEST_CXXFLAGS = $(CXXFLAGS)
+TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR)
+TEST_LDFLAGS  = -lgtest -lgtest_main -pthread
 
 test: test-tokenizer test-parser test-validator
 
@@ -76,19 +78,6 @@ test-validator: $(TEST_BIN_DIR)/validator
 
 test-http-request: $(TEST_BIN_DIR)/http-request
 	@cd $(TEST_DIR) && ./bin/http-request --gtest_color=yes
-
-
-#$(TEST_BIN_DIR)/tokenizer: $(TEST_DIR)/test_tokenizer.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
-#	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
-
-#$(TEST_BIN_DIR)/parser: $(TEST_DIR)/test_parser.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
-#	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
-
-#$(TEST_BIN_DIR)/validator: $(TEST_DIR)/test_validator.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
-#	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
-
-#$(TEST_BIN_DIR)/http-request: $(TEST_DIR)/test_http_request.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
-#	$(CXX) $(TEST_CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
 $(TEST_BIN_DIR)/tokenizer: $(TEST_DIR)/test_tokenizer.cpp $(TEST_COMMON) | $(TEST_BIN_DIR)
 	$(CXX) $(TEST_CPPFLAGS) $(TEST_CXXFLAGS) $^ -o $@ $(TEST_LDFLAGS)
