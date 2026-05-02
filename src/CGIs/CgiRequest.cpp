@@ -269,7 +269,12 @@ std::string CgiRequest::releaseOutputBuffer() {
 bool CgiRequest::reap(int waitStatus) noexcept {
   if (_pid == -1)
     return false;
-  _exitStatus = WEXITSTATUS(waitStatus);
+  if (WIFEXITED(waitStatus))
+    _exitStatus = WEXITSTATUS(waitStatus);
+  else if (WIFSIGNALED(waitStatus))
+    _exitStatus = 128 + WTERMSIG(waitStatus);
+  else
+    _exitStatus = 1;
   _pid = -1;
   _finished = true;
   return true;
@@ -282,9 +287,13 @@ std::optional<int> CgiRequest::exitStatus() const noexcept {
 void CgiRequest::terminate() noexcept {
   if (_pid == -1)
     return;
-  kill(_pid, SIGTERM);
+  kill(_pid, SIGKILL);
   int status;
   waitpid(_pid, &status, 0);
+  if (WIFEXITED(status))
+    _exitStatus = WEXITSTATUS(status);
+  else if (WIFSIGNALED(status))
+    _exitStatus = 128 + WTERMSIG(status);
   _pid = -1;
 }
 

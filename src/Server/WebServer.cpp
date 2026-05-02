@@ -24,6 +24,14 @@
 
 namespace webserv {
 
+namespace {
+
+bool sameEndpoint(const Listener &listener, const ListenEndpoint &endpoint) {
+  return listener.host == endpoint.host && listener.port == endpoint.port;
+}
+
+} // namespace
+
 WebServer::WebServer(std::vector<ServerConfig> servers)
     : _servers(std::move(servers)) {}
 
@@ -54,7 +62,7 @@ void WebServer::setupSignals() {
   if (_signalFd.get() == -1)
     throw std::runtime_error("signalfd failed");
 
-  _poller.addFd(_signalFd, EPOLLIN, FdType::Signal);
+  _poller.addFd(_signalFd.get(), EPOLLIN, FdType::Signal);
 }
 
 void WebServer::setNonblockingFlag(UniqueFd &fd) const {
@@ -123,10 +131,21 @@ void WebServer::createServer(const ServerConfig &serverConfig) {
   const std::vector<ListenEndpoint> &endpoints = serverConfig.listenEndpoints();
 
   for (const ListenEndpoint &endpoint : endpoints) {
+    bool alreadyListening = false;
+    for (const auto &[fd, listener] : _listeningFds) {
+      (void)fd;
+      if (sameEndpoint(listener, endpoint)) {
+        alreadyListening = true;
+        break;
+      }
+    }
+    if (alreadyListening)
+      continue;
+
     UniqueFd fd(setupSocket(endpoint));
     int rawFd = fd.get();
 
-    _poller.addFd(fd, EPOLLIN);
+    _poller.addFd(rawFd, EPOLLIN, FdType::Listener);
 
     Listener temp = {std::move(fd), endpoint.host, endpoint.port,
                      &serverConfig};

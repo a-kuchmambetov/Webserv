@@ -1,4 +1,6 @@
 $kind: collection
 name: Main Requests
 variables:
-  serverURL: ""
+  server.IP: ""
+  server.URL: ""
+  server.URL.CGI: ""

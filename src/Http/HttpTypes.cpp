@@ -93,6 +93,8 @@ std::string reasonPhraseFor(int statusCode) {
     return "Bad Gateway";
   case 504:
     return "Gateway Timeout";
+  case 505:
+    return "HTTP Version Not Supported";
   default:
     return "Unknown Status";
   }

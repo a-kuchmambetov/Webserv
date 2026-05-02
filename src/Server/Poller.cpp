@@ -1,7 +1,8 @@
 #include "Poller.hpp"
 #include "HttpTypes.hpp"
-#include "UniqueFd.hpp"
 
+#include <cerrno>
+#include <cstddef>
 #include <stdexcept>
 
 namespace webserv {
@@ -11,17 +12,16 @@ Poller::Poller() : _epollFd(epoll_create1(EPOLL_CLOEXEC)), _events(64) {
     throw std::runtime_error("epoll_create1 failed");
 }
 
-void Poller::addFd(const UniqueFd &fd, const uint32_t events,
-                   const FdType fdType) {
+void Poller::addFd(int fd, uint32_t events, FdType fdType) {
   epoll_event ev{};
   ev.events = events;
-  ev.data.fd = fd.get();
+  ev.data.fd = fd;
 
-  if (epoll_ctl(_epollFd.get(), EPOLL_CTL_ADD, fd.get(), &ev) == -1) {
+  if (epoll_ctl(_epollFd.get(), EPOLL_CTL_ADD, fd, &ev) == -1) {
     throw std::runtime_error("epoll_ctl ADD fd failed");
   }
 
-  _pollingFds.emplace(fd.get(), fdType);
+  _pollingFds.emplace(fd, fdType);
 }
 
 void Poller::modFd(int fd, uint32_t events) {
@@ -43,11 +43,19 @@ void Poller::removeFd(int fd) noexcept {
 EventsData Poller::getEventsReady() {
   int n = epoll_wait(_epollFd.get(), _events.data(),
                      static_cast<int>(_events.size()), _timeout);
-  return {n, &_events};
+  if (n == -1) {
+    if (errno == EINTR)
+      return {};
+    throw std::runtime_error("epoll_wait failed");
+  }
+  return {_events.data(), static_cast<std::size_t>(n)};
 }
 
-FdType Poller::getFdType(const int fd) const noexcept {
-  return _pollingFds.at(fd);
+FdType Poller::getFdType(int fd) const noexcept {
+  auto it = _pollingFds.find(fd);
+  if (it == _pollingFds.end())
+    return FdType::Unknown;
+  return it->second;
 }
 
 } // namespace webserv

@@ -83,7 +83,7 @@ private:
   UniqueFd _fd;
   ConnectionOptions _options;
   ConnectionState _state{ConnectionState::ReadingRequest};
-  bool _closeAfterWrite{false};
+  bool _closeAfterWrite{true};
 
   PeerAddress _peerAddress;
   std::chrono::steady_clock::time_point _lastActivity{};
@@ -94,7 +94,7 @@ private:
   HttpRequest _request;
   bool _requestReady{false};
 
-  // std::unique_ptr<CgiRequest> _activeCgi;
+  std::unique_ptr<CgiRequest> _activeCgi;
 };
 
 } // namespace webserv

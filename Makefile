@@ -8,7 +8,8 @@ DEPFLAGS = -MMD -MP
 SRC_SHARED =	src/Shared/UniqueFd.cpp
 
 SRC_HTTP = src/Http/HttpTypes.cpp \
-					 src/Http/HttpRequest.cpp
+					 src/Http/HttpRequest.cpp \
+					 src/Http/HttpResponse.cpp
 
 SRC_SERVERCONFIG = src/Configs/ServerConfig.cpp \
 									 src/Configs/LocationConfig.cpp \
@@ -59,15 +60,8 @@ re: fclean all
 # --- Tests ---
 TEST_DIR      = tests
 TEST_BIN_DIR  = $(TEST_DIR)/bin
-TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP)
-
-
-#TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR) -lgtest -lgtest_main -pthread
-
-TEST_CXXFLAGS = $(CXXFLAGS)
-TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR)
-TEST_LDFLAGS  = -lgtest -lgtest_main -pthread
-
+TEST_COMMON   = $(SRC_SERVERCONFIG) $(SRC_HTTP) src/CGIs/CgiResult.cpp
+TEST_CPPFLAGS = $(CPPFLAGS) -I$(TEST_DIR) -lgtest -lgtest_main -pthread
 
 test: test-tokenizer test-parser test-validator
 

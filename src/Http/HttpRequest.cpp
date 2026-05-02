@@ -34,6 +34,14 @@ ParseOutcome HttpRequest::append(std::string_view bytes) {
   _rawBuffer.append(bytes);
 
   while (true) {
+    if ((_state == RequestParseState::StartLine ||
+         _state == RequestParseState::Headers) &&
+        _maxHeaderSize > 0 && _rawBuffer.find("\r\n\r\n") == std::string::npos &&
+        _rawBuffer.size() > _maxHeaderSize) {
+      setError(431);
+      return ParseOutcome::Error;
+    }
+
     switch (_state) {
     case RequestParseState::StartLine:
       if (!parseStartLine()) {
@@ -634,6 +642,13 @@ bool HttpRequest::hasHeader(std::string_view name) const noexcept {
   return header(name).has_value();
 }
 
+std::string_view HttpRequest::host() const noexcept {
+  auto value = header("Host");
+  if (!value)
+    return {};
+  return *value;
+}
+
 void HttpRequest::setError(int statusCode) noexcept {
   _errorStatus = statusCode;
   _state = RequestParseState::Error;
@@ -693,6 +708,7 @@ void HttpRequest::reset() noexcept {
   _bodyBytesReceived = 0;
   _currentChunkSize = 0;
   _maxBodySize = 0;
+  _maxHeaderSize = 0;
 
   _methodText.clear();
   _method = HttpMethod::Unknown;

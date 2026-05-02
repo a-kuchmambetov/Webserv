@@ -7,6 +7,7 @@
 #include "UniqueFd.hpp"
 
 #include <filesystem>
+#include <cstdint>
 #include <map>
 #include <sys/types.h>
 #include <vector>
@@ -47,19 +48,40 @@ private:
   void setupSignals();
 
   [[nodiscard]] bool acceptConnection(const Listener &listener);
-  void removeConnection(ClientSession &ClientSession) noexcept;
+  void handleSignal(int fd);
+  void handleClientEvent(int fd, uint32_t events);
+  void removeConnection(ClientSession &clientSession) noexcept;
   void readRequest(int fd);
   void processRequest(int fd);
-  void processCgi(int fd);
+  void processCgiInput(int fd);
+  void processCgiOutput(int fd, uint32_t events);
+  void finishCgi(int clientFd, int outputFd);
   void writeResponse(int fd);
   void closeIdleConnections();
 
-  std::string getStaticFile(const std::filesystem::path path);
+  [[nodiscard]] const ServerConfig &
+  selectVirtualHost(const ClientSession &session,
+                    const HttpRequest &request) const;
+  void queueResponse(int fd, HttpResponse response);
+  void queueError(int fd, const ServerConfig *server, int statusCode);
+  void queueMethodNotAllowed(int fd, const LocationConfig &location);
+  void queueRedirect(int fd, const LocationConfig &location);
+  [[nodiscard]] bool isCgiRequest(const HttpRequest &request,
+                                  const LocationConfig &location) const;
+  void startCgi(int fd, const ServerConfig &server,
+                const LocationConfig &location);
+  void handleStaticGet(int fd, const ServerConfig &server,
+                       const LocationConfig &location);
+  void handleUpload(int fd, const ServerConfig &server,
+                    const LocationConfig &location);
+  void handleDelete(int fd, const ServerConfig &server,
+                    const LocationConfig &location);
 
   Poller _poller;
   std::vector<ServerConfig> _servers;
   std::map<int, Listener> _listeningFds;
   std::map<int, ClientSession> _connectionFds;
+  std::map<int, int> _cgiFdToClient;
   UniqueFd _signalFd;
   bool _shouldStop{false};
 };

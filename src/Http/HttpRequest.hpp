@@ -32,6 +32,7 @@ public:
   [[nodiscard]] std::optional<std::string_view>
   header(std::string_view name) const noexcept;
   [[nodiscard]] bool hasHeader(std::string_view name) const noexcept;
+  [[nodiscard]] std::string_view host() const noexcept;
 
   [[nodiscard]] std::string_view body() const noexcept;
   [[nodiscard]] BodyTransferMode bodyTransferMode() const noexcept;

@@ -97,7 +97,11 @@ IoResult Connection::onReadable() {
   return IoResult::Error;
 }
 
-IoResult Connection::onWritable() { return writeToSocket(); }
+IoResult Connection::onWritable() {
+  if (_state != ConnectionState::WritingResponse)
+    return IoResult::Continue;
+  return writeToSocket();
+}
 
 HttpRequest &Connection::getRequest() noexcept { return _request; }
 
@@ -109,7 +113,35 @@ void Connection::appendResponseBytes(std::string_view bytes) {
   _writeBuffer.append(bytes);
 }
 
+void Connection::queueResponse(HttpResponse response) {
+  if (!_request.keepAliveRequested())
+    response.setConnectionPreference(ConnectionPreference::Close);
+  _closeAfterWrite = response.shouldCloseConnection();
+  _writeBuffer = response.serialize();
+  _state = ConnectionState::WritingResponse;
+}
+
+void Connection::attachCgi(std::unique_ptr<CgiRequest> cgiRequest) noexcept {
+  _activeCgi = std::move(cgiRequest);
+  _state = ConnectionState::RunningCgi;
+}
+
+bool Connection::hasActiveCgi() const noexcept {
+  return static_cast<bool>(_activeCgi);
+}
+
+CgiRequest *Connection::getActiveCgi() noexcept { return _activeCgi.get(); }
+
+const CgiRequest *Connection::getActiveCgi() const noexcept {
+  return _activeCgi.get();
+}
+
+std::unique_ptr<CgiRequest> Connection::detachCgi() noexcept {
+  return std::move(_activeCgi);
+}
+
 void Connection::prepareForNextRequest() {
+  _activeCgi.reset();
   _request.reset();
   _requestReady = false;
   _readBuffer.clear();
@@ -142,6 +174,7 @@ IoResult Connection::writeToSocket() {
 
     if (bytesSent > 0) {
       _writeBuffer.erase(0, static_cast<std::size_t>(bytesSent));
+      markActivity();
       continue;
     }
     if (bytesSent == 0)
@@ -168,21 +201,14 @@ void Connection::close() noexcept {
   const PeerAddress &peer = getPeerAddress();
 
   if (state == ConnectionState::ReadingRequest) {
-    std::cout << "[Server] : client timed out - " << peer.ip << ":" << peer.port
-              << std::endl;
-    std::string resMsg =
-        "HTTP/1.1 408 Request Timeout\r\n"
-        "Connection: close\r\n"
-        "Content-Type: text/html\r\n"
-        "Content-Length: 48\r\n"
-        "\r\b"
-        "<html><body><h1>408 Request Timeout</h1></body></html>\n";
-    send(_fd.get(), resMsg.data(), resMsg.size(), MSG_NOSIGNAL);
+    std::cout << "[Server] : client disconnected - " << peer.ip << ":"
+              << peer.port << std::endl;
   } else {
     std::cout << "[Server] : client disconnected by server - " << peer.ip << ":"
               << peer.port << std::endl;
   }
 
+  _activeCgi.reset();
   _state = ConnectionState::Closed;
 }
 
