@@ -18,7 +18,9 @@ SRC_SERVERCONFIG = src/Configs/ServerConfig.cpp \
 									 src/Configs/Validator.cpp
 
 SRC_SERVER = src/Server/WebServer.cpp \
-						 src/Server/WebServer.serverLoop.cpp \
+						 src/Server/WebServer.eventLoop.cpp \
+						 src/Server/WebServer.routing.cpp \
+						 src/Server/WebServer.cgi.cpp \
 						 src/Server/Connection.cpp \
 						 src/Server/Poller.cpp
 

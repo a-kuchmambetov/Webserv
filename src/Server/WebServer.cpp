@@ -156,4 +156,4 @@ void WebServer::createServer(const ServerConfig &serverConfig) {
   }
 }
 
-}; // namespace webserv
+} // namespace webserv

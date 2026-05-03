@@ -1,37 +1,29 @@
 #include "WebServer.hpp"
-#include "CgiResult.hpp"
+#include "CgiRequest.hpp"
 #include "Connection.hpp"
 #include "HttpRequest.hpp"
 #include "HttpResponse.hpp"
 #include "HttpTypes.hpp"
 #include "LocationConfig.hpp"
 #include "ServerConfig.hpp"
-#include "UniqueFd.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
-#include <cctype>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
 
-#include <netinet/in.h>
 #include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 namespace webserv {
 
@@ -103,7 +95,6 @@ bool pathStartsWith(const std::filesystem::path &child,
                     const std::filesystem::path &base) {
   auto childIt = child.begin();
   auto baseIt = base.begin();
-
   for (; baseIt != base.end(); ++baseIt, ++childIt) {
     if (childIt == child.end() || *childIt != *baseIt)
       return false;
@@ -183,9 +174,8 @@ std::string directoryListing(const std::filesystem::path &directory,
 
   std::ostringstream html;
   html << "<!doctype html><html><head><meta charset=\"utf-8\"><title>Index of "
-       << escapeHtml(requestPath)
-       << "</title></head><body><h1>Index of " << escapeHtml(requestPath)
-       << "</h1><ul>";
+       << escapeHtml(requestPath) << "</title></head><body><h1>Index of "
+       << escapeHtml(requestPath) << "</h1><ul>";
   for (const std::string &name : names) {
     html << "<li><a href=\"" << escapeHtml(base + name) << "\">"
          << escapeHtml(name) << "</a></li>";
@@ -212,9 +202,9 @@ std::string generatedUploadName() {
 }
 
 std::string filenameFromContentDisposition(std::string_view header) {
-  const std::string key = "filename=";
-  const std::size_t pos = header.find(std::string_view(key));
-  if (pos == std::string::npos)
+  static constexpr std::string_view key = "filename=";
+  const std::size_t pos = header.find(key);
+  if (pos == std::string_view::npos)
     return {};
 
   std::string value(header.substr(pos + key.size()));
@@ -251,202 +241,6 @@ std::string locationForUpload(std::string_view requestPath,
 
 } // namespace
 
-void WebServer::run() {
-  setupSignals();
-
-  for (ServerConfig &serverConfig : _servers)
-    createServer(serverConfig);
-
-  while (!_shouldStop) {
-    EventsData events = _poller.getEventsReady();
-
-    for (const epoll_event &event : events) {
-      const int fd = event.data.fd;
-
-      switch (_poller.getFdType(fd)) {
-      case FdType::Signal:
-        handleSignal(fd);
-        break;
-      case FdType::Listener:
-        while (acceptConnection(_listeningFds.at(fd))) {
-        }
-        break;
-      case FdType::Client:
-        handleClientEvent(fd, event.events);
-        break;
-      case FdType::CgiStdIn:
-        processCgiInput(fd);
-        break;
-      case FdType::CgiStdOut:
-        processCgiOutput(fd, event.events);
-        break;
-      case FdType::Unknown:
-        _poller.removeFd(fd);
-        break;
-      }
-
-      if (_shouldStop)
-        break;
-    }
-
-    closeIdleConnections();
-  }
-}
-
-void WebServer::handleSignal(int fd) {
-  signalfd_siginfo si;
-  while (read(fd, &si, sizeof(si)) == sizeof(si)) {
-  }
-  std::cout << "\n[Server] : shutdown signal received" << std::endl;
-  _shouldStop = true;
-}
-
-void WebServer::handleClientEvent(int fd, uint32_t events) {
-  auto it = _connectionFds.find(fd);
-  if (it == _connectionFds.end()) {
-    _poller.removeFd(fd);
-    return;
-  }
-
-  if (events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
-    removeConnection(it->second);
-    return;
-  }
-  if (events & EPOLLIN) {
-    readRequest(fd);
-    return;
-  }
-  if (events & EPOLLOUT)
-    writeResponse(fd);
-}
-
-void WebServer::closeIdleConnections() {
-  auto now = std::chrono::steady_clock::now();
-
-  std::vector<int> timedOut;
-  for (const auto &[fd, session] : _connectionFds) {
-    if (session.connection.isTimedOut(now))
-      timedOut.push_back(fd);
-  }
-
-  for (int fd : timedOut) {
-    auto it = _connectionFds.find(fd);
-    if (it == _connectionFds.end())
-      continue;
-
-    Connection &conn = it->second.connection;
-    const PeerAddress &peer = conn.getPeerAddress();
-    std::cout << "[Server] : client timed out - " << peer.ip << ":"
-              << peer.port << std::endl;
-
-    if (conn.getState() == ConnectionState::ReadingRequest)
-      queueError(fd, it->second.defaultServer, 408);
-    else
-      removeConnection(it->second);
-  }
-}
-
-bool WebServer::acceptConnection(const Listener &listener) {
-  int listenerFd = listener.fd.get();
-
-  sockaddr_in clientAddr{};
-  socklen_t clientLen = sizeof(clientAddr);
-
-  UniqueFd clientFd(accept(
-      listenerFd, reinterpret_cast<sockaddr *>(&clientAddr), &clientLen));
-
-  if (clientFd.get() == -1) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return false;
-
-    throw std::runtime_error("accept failed");
-  }
-
-  int rawClientFd = clientFd.get();
-  try {
-    setNonblockingFlag(clientFd);
-    _poller.addFd(rawClientFd, EPOLLIN | EPOLLRDHUP, FdType::Client);
-  } catch (const std::exception &e) {
-    std::cerr << "[Server] : dropping client after accept setup failure: "
-              << e.what() << std::endl;
-    return true;
-  }
-
-  ConnectionOptions options;
-  if (listener.serverConfig) {
-    options.maxRequestBodySize = listener.serverConfig->clientMaxBodySize();
-    options.maxRequestHeaderSize = listener.serverConfig->clientMaxHeaderSize();
-  }
-
-  _connectionFds.emplace(rawClientFd,
-                         ClientSession{Connection(std::move(clientFd), options),
-                                       listener.serverConfig, listenerFd});
-
-  ClientSession &clientRef = _connectionFds.at(rawClientFd);
-
-  uint32_t ipv4 = ntohl(clientAddr.sin_addr.s_addr);
-  uint16_t port = ntohs(clientAddr.sin_port);
-
-  std::string ipv4Str = std::to_string((ipv4 >> 24) & 0xFF) + '.' +
-                        std::to_string((ipv4 >> 16) & 0xFF) + '.' +
-                        std::to_string((ipv4 >> 8) & 0xFF) + '.' +
-                        std::to_string(ipv4 & 0xFF);
-
-  clientRef.connection.setPeerAddress(ipv4Str, port);
-
-  const PeerAddress &clientPeerAddress = clientRef.connection.getPeerAddress();
-
-  std::cout << "[Server] : client connected - " << clientPeerAddress.ip << ":"
-            << clientPeerAddress.port << std::endl;
-
-  return true;
-}
-
-void WebServer::removeConnection(ClientSession &clientSession) noexcept {
-  int clientFd = clientSession.connection.getFd();
-
-  if (CgiRequest *cgi = clientSession.connection.getActiveCgi()) {
-    const int stdinFd = cgi->stdinFd();
-    const int stdoutFd = cgi->stdoutFd();
-    if (stdinFd != -1) {
-      _poller.removeFd(stdinFd);
-      _cgiFdToClient.erase(stdinFd);
-    }
-    if (stdoutFd != -1) {
-      _poller.removeFd(stdoutFd);
-      _cgiFdToClient.erase(stdoutFd);
-    }
-  }
-
-  clientSession.connection.close();
-  _poller.removeFd(clientFd);
-  _connectionFds.erase(clientFd);
-}
-
-void WebServer::readRequest(int fd) {
-  ClientSession &session = _connectionFds.at(fd);
-  Connection &conn = session.connection;
-
-  switch (conn.onReadable()) {
-  case IoResult::Continue:
-    conn.markActivity();
-    break;
-  case IoResult::Complete:
-    conn.markActivity();
-    processRequest(fd);
-    break;
-  case IoResult::Closed:
-    removeConnection(session);
-    break;
-  case IoResult::Error:
-    if (conn.getRequest().hasError())
-      queueError(fd, session.defaultServer, conn.getRequest().errorStatus());
-    else
-      removeConnection(session);
-    break;
-  }
-}
-
 const ServerConfig &
 WebServer::selectVirtualHost(const ClientSession &session,
                              const HttpRequest &request) const {
@@ -474,16 +268,12 @@ void WebServer::processRequest(int fd) {
 
   if (!location)
     return queueError(fd, &server, 404);
-
   if (!location->isMethodAllowed(request.method()))
     return queueMethodNotAllowed(fd, *location);
-
   if (request.body().size() > server.effectiveClientMaxBodySize(location))
     return queueError(fd, &server, 413);
-
   if (location->hasRedirect())
     return queueRedirect(fd, *location);
-
   if (isCgiRequest(request, *location))
     return startCgi(fd, server, *location);
 
@@ -507,26 +297,24 @@ void WebServer::queueResponse(int fd, HttpResponse response) {
   _poller.modFd(fd, EPOLLOUT | EPOLLRDHUP);
 }
 
-void WebServer::queueError(int fd, const ServerConfig *server,
-                           int statusCode) {
+void WebServer::queueError(int fd, const ServerConfig *server, int statusCode) {
   HttpResponse response = HttpResponse::error(statusCode);
 
   if (server) {
-    std::optional<std::filesystem::path> path = server->errorPageFor(statusCode);
+    std::optional<std::filesystem::path> path =
+        server->errorPageFor(statusCode);
     std::error_code ec;
     if (path && std::filesystem::is_regular_file(*path, ec)) {
-      response.setBody("");
-      response.setFileBody(HttpResponse::FileBody{
-          *path, std::filesystem::file_size(*path, ec),
-          HttpResponse::mimeTypeFor(*path)});
+      response.setFileBody(
+          HttpResponse::FileBody{*path, std::filesystem::file_size(*path, ec),
+                                 HttpResponse::mimeTypeFor(*path)});
     }
   }
 
   queueResponse(fd, std::move(response));
 }
 
-void WebServer::queueMethodNotAllowed(int fd,
-                                      const LocationConfig &location) {
+void WebServer::queueMethodNotAllowed(int fd, const LocationConfig &location) {
   HttpResponse response = HttpResponse::error(405);
   response.setHeader("Allow", allowHeaderValue(location));
   queueResponse(fd, std::move(response));
@@ -578,14 +366,14 @@ void WebServer::handleStaticGet(int fd, const ServerConfig &server,
     return queueError(fd, &server, 404);
 
   HttpResponse response;
-  response.setFileBody(HttpResponse::FileBody{
-      path, std::filesystem::file_size(path, ec), HttpResponse::mimeTypeFor(path)});
+  response.setFileBody(
+      HttpResponse::FileBody{path, std::filesystem::file_size(path, ec),
+                             HttpResponse::mimeTypeFor(path)});
   queueResponse(fd, std::move(response));
 }
 
 void WebServer::handleUpload(int fd, const ServerConfig &server,
                              const LocationConfig &location) {
-  (void)server;
   const HttpRequest &request = _connectionFds.at(fd).connection.getRequest();
   if (!location.uploadsEnabled())
     return queueMethodNotAllowed(fd, location);
@@ -608,8 +396,8 @@ void WebServer::handleUpload(int fd, const ServerConfig &server,
     std::string candidate = filename;
     if (i > 0) {
       const std::filesystem::path p(filename);
-      candidate = p.stem().string() + "-" + std::to_string(i) +
-                  p.extension().string();
+      candidate =
+          p.stem().string() + "-" + std::to_string(i) + p.extension().string();
     }
     target = canonicalOrNormalized(uploadRoot / candidate);
     if (!pathStartsWith(target, uploadRoot))
@@ -714,152 +502,8 @@ void WebServer::startCgi(int fd, const ServerConfig &server,
     }
     _poller.removeFd(stdoutFd);
     _cgiFdToClient.erase(stdoutFd);
-    std::unique_ptr<CgiRequest> droppedCgi = conn.detachCgi();
-    droppedCgi.reset();
+    std::unique_ptr<CgiRequest> dropped = conn.detachCgi();
     queueError(fd, &server, 502);
-  }
-}
-
-void WebServer::processCgiInput(int fd) {
-  auto owner = _cgiFdToClient.find(fd);
-  if (owner == _cgiFdToClient.end()) {
-    _poller.removeFd(fd);
-    return;
-  }
-
-  auto client = _connectionFds.find(owner->second);
-  if (client == _connectionFds.end()) {
-    _poller.removeFd(fd);
-    _cgiFdToClient.erase(owner);
-    return;
-  }
-
-  CgiRequest *cgi = client->second.connection.getActiveCgi();
-  if (!cgi) {
-    _poller.removeFd(fd);
-    _cgiFdToClient.erase(owner);
-    return;
-  }
-
-  IoResult result = cgi->onStdinWritable();
-  client->second.connection.markActivity();
-  if (result == IoResult::Complete || result == IoResult::Error ||
-      !cgi->wantsWrite()) {
-    _poller.removeFd(fd);
-    _cgiFdToClient.erase(fd);
-  }
-}
-
-void WebServer::processCgiOutput(int fd, uint32_t events) {
-  auto owner = _cgiFdToClient.find(fd);
-  if (owner == _cgiFdToClient.end()) {
-    _poller.removeFd(fd);
-    return;
-  }
-
-  auto client = _connectionFds.find(owner->second);
-  if (client == _connectionFds.end()) {
-    _poller.removeFd(fd);
-    _cgiFdToClient.erase(owner);
-    return;
-  }
-
-  CgiRequest *cgi = client->second.connection.getActiveCgi();
-  if (!cgi) {
-    _poller.removeFd(fd);
-    _cgiFdToClient.erase(owner);
-    return;
-  }
-
-  bool finished = false;
-  if (events & (EPOLLIN | EPOLLHUP | EPOLLERR)) {
-    while (true) {
-      const std::size_t before = cgi->outputBuffer().size();
-      IoResult result = cgi->onStdoutReadable();
-      client->second.connection.markActivity();
-      if (result == IoResult::Closed || result == IoResult::Error ||
-          cgi->isFinished()) {
-        finished = true;
-        break;
-      }
-      if (cgi->outputBuffer().size() == before)
-        break;
-      if ((events & (EPOLLHUP | EPOLLERR)) == 0)
-        break;
-    }
-  }
-
-  if (finished)
-    finishCgi(client->first, fd);
-}
-
-void WebServer::finishCgi(int clientFd, int outputFd) {
-  auto client = _connectionFds.find(clientFd);
-  if (client == _connectionFds.end()) {
-    _poller.removeFd(outputFd);
-    _cgiFdToClient.erase(outputFd);
-    return;
-  }
-
-  Connection &conn = client->second.connection;
-  std::unique_ptr<CgiRequest> cgi = conn.detachCgi();
-  if (!cgi) {
-    _poller.removeFd(outputFd);
-    _cgiFdToClient.erase(outputFd);
-    return;
-  }
-
-  const int stdinFd = cgi->stdinFd();
-  if (stdinFd != -1) {
-    _poller.removeFd(stdinFd);
-    _cgiFdToClient.erase(stdinFd);
-  }
-  _poller.removeFd(outputFd);
-  _cgiFdToClient.erase(outputFd);
-
-  if (cgi->pid() != -1) {
-    int status = 0;
-    const pid_t rc = waitpid(cgi->pid(), &status, WNOHANG);
-    if (rc == cgi->pid())
-      (void)cgi->reap(status);
-    else if (rc == 0)
-      cgi->terminate();
-  }
-
-  CgiResult result;
-  const std::string output = cgi->releaseOutputBuffer();
-  result.append(output);
-  result.finalizeAtEof();
-
-  if (result.hasError()) {
-    return queueError(clientFd, client->second.defaultServer,
-                      result.errorStatus());
-  }
-  if (cgi->exitStatus().has_value() && *cgi->exitStatus() != 0 &&
-      !result.headersParsed()) {
-    return queueError(clientFd, client->second.defaultServer, 502);
-  }
-
-  queueResponse(clientFd, HttpResponse::fromCgi(result));
-}
-
-void WebServer::writeResponse(int fd) {
-  auto it = _connectionFds.find(fd);
-  if (it == _connectionFds.end()) {
-    _poller.removeFd(fd);
-    return;
-  }
-
-  switch (it->second.connection.onWritable()) {
-  case IoResult::Continue:
-    break;
-  case IoResult::Complete:
-    _poller.modFd(fd, EPOLLIN | EPOLLRDHUP);
-    break;
-  case IoResult::Closed:
-  case IoResult::Error:
-    removeConnection(it->second);
-    break;
   }
 }
 
