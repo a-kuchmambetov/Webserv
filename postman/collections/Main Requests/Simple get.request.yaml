@@ -1,8 +1,0 @@
-$kind: http-request
-name: Simple get
-url: "{{server.URL}}/"
-method: GET
-settings:
-  protocolVersion: http1
-  disabledSystemHeaders: []
-order: 1777628509347

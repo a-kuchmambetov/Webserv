@@ -1,0 +1,8 @@
+$kind: http-request
+name: GET /cgi-bin/
+url: "{{server.URL}}/cgi-bin/calc_sum.py"
+method: POST
+body:
+  type: json
+  content: a=5&b=2002
+order: 3931593545818610

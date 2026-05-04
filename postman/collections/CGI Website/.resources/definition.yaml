@@ -1,0 +1,6 @@
+$kind: collection
+id: 5EB7081A6eE378C2409FEC6D
+name: CGI Website
+variables:
+  server.IP: ""
+  server.URL: ""

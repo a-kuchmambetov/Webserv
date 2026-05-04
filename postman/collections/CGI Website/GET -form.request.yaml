@@ -1,0 +1,8 @@
+$kind: http-request
+name: GET /form
+url: "{{server.URL}}/form"
+method: POST
+body:
+  type: json
+  content: a=2&b=5
+order: 4440483936236035

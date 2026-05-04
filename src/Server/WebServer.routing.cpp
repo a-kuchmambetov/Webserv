@@ -239,6 +239,154 @@ std::string locationForUpload(std::string_view requestPath,
   return location;
 }
 
+std::optional<std::string> extractBoundary(std::string_view contentType) {
+  static constexpr std::string_view key = "boundary=";
+  const std::size_t pos = contentType.find(key);
+  if (pos == std::string_view::npos)
+    return std::nullopt;
+
+  std::string value(contentType.substr(pos + key.size()));
+  std::size_t end = value.size();
+  while (end > 0 && (value[end - 1] == ' ' || value[end - 1] == '\t' ||
+                     value[end - 1] == ';'))
+    --end;
+  value.resize(end);
+
+  std::size_t start = 0;
+  while (start < value.size() &&
+         (value[start] == ' ' || value[start] == '\t'))
+    ++start;
+  value = value.substr(start);
+
+  if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+    value = value.substr(1, value.size() - 2);
+  return value;
+}
+
+std::optional<std::string_view> headerValueInBlock(std::string_view block,
+                                                    std::string_view name) {
+  std::size_t pos = 0;
+  while (pos < block.size()) {
+    std::size_t lineEnd = block.find("\r\n", pos);
+    if (lineEnd == std::string_view::npos)
+      lineEnd = block.size();
+    std::string_view line = block.substr(pos, lineEnd - pos);
+    std::size_t colon = line.find(':');
+    if (colon != std::string_view::npos) {
+      std::string_view key = line.substr(0, colon);
+      bool match = key.size() == name.size();
+      if (match) {
+        for (std::size_t i = 0; i < key.size(); ++i) {
+          if (std::tolower(static_cast<unsigned char>(key[i])) !=
+              std::tolower(static_cast<unsigned char>(name[i]))) {
+            match = false;
+            break;
+          }
+        }
+      }
+      if (match) {
+        std::string_view value = line.substr(colon + 1);
+        std::size_t vstart = value.find_first_not_of(" \t");
+        if (vstart != std::string_view::npos)
+          value = value.substr(vstart);
+        return value;
+      }
+    }
+    if (lineEnd == block.size())
+      break;
+    pos = lineEnd + 2;
+  }
+  return std::nullopt;
+}
+
+std::string partFilename(std::string_view partHeaders) {
+  auto cd = headerValueInBlock(partHeaders, "Content-Disposition");
+  if (!cd)
+    return {};
+  return filenameFromContentDisposition(*cd);
+}
+
+std::size_t findBoundary(std::string_view body, std::string_view boundary,
+                          std::size_t start) {
+  std::string marker = "--" + std::string(boundary);
+  std::size_t pos = start;
+  while (pos < body.size()) {
+    pos = body.find(marker, pos);
+    if (pos == std::string_view::npos)
+      return std::string_view::npos;
+    if (pos == 0 ||
+        (pos >= 2 && body[pos - 2] == '\r' && body[pos - 1] == '\n'))
+      return pos;
+    ++pos;
+  }
+  return std::string_view::npos;
+}
+
+std::vector<std::pair<std::string_view, std::string_view>>
+parseMultipartParts(std::string_view body, std::string_view boundary) {
+  std::vector<std::pair<std::string_view, std::string_view>> parts;
+  std::string marker = "--" + std::string(boundary);
+  std::size_t pos = findBoundary(body, boundary, 0);
+  if (pos == std::string_view::npos)
+    return parts;
+  while (true) {
+    std::size_t afterMarker = pos + marker.size();
+    if (afterMarker + 2 <= body.size() && body[afterMarker] == '-' &&
+        body[afterMarker + 1] == '-')
+      break;
+    if (afterMarker + 2 > body.size() || body[afterMarker] != '\r' ||
+        body[afterMarker + 1] != '\n')
+      break;
+    std::size_t partStart = afterMarker + 2;
+    std::size_t headersEnd = body.find("\r\n\r\n", partStart);
+    if (headersEnd == std::string_view::npos)
+      break;
+    std::string_view partHeaders = body.substr(partStart, headersEnd - partStart);
+    std::size_t bodyStart = headersEnd + 4;
+    std::size_t nextPos = findBoundary(body, boundary, bodyStart);
+    if (nextPos == std::string_view::npos)
+      break;
+    std::size_t partBodyEnd = nextPos;
+    if (partBodyEnd >= 2 && body[partBodyEnd - 2] == '\r' &&
+        body[partBodyEnd - 1] == '\n')
+      partBodyEnd -= 2;
+    parts.emplace_back(partHeaders,
+                        body.substr(bodyStart, partBodyEnd - bodyStart));
+    pos = nextPos;
+  }
+  return parts;
+}
+
+std::optional<std::filesystem::path>
+resolveUniqueTarget(const std::filesystem::path &uploadRoot,
+                    const std::string &filename,
+                    std::string &outFilename) {
+  std::error_code ec;
+  std::filesystem::path target;
+  for (int i = 0; i < 1000; ++i) {
+    std::string candidate = filename;
+    if (i > 0) {
+      const std::filesystem::path p(filename);
+      candidate =
+          p.stem().string() + "-" + std::to_string(i) + p.extension().string();
+    }
+    target = canonicalOrNormalized(uploadRoot / candidate);
+    if (!pathStartsWith(target, uploadRoot))
+      return std::nullopt;
+    if (!std::filesystem::exists(target, ec)) {
+      outFilename = candidate;
+      return target;
+    }
+  }
+  return std::nullopt;
+}
+
+void cleanupUploads(const std::vector<std::filesystem::path> &paths) {
+  std::error_code ec;
+  for (const auto &p : paths)
+    std::filesystem::remove(p, ec);
+}
+
 } // namespace
 
 const ServerConfig &
@@ -269,7 +417,7 @@ void WebServer::processRequest(int fd) {
   if (!location)
     return queueError(fd, &server, 404);
   if (!location->isMethodAllowed(request.method()))
-    return queueMethodNotAllowed(fd, *location);
+    return queueMethodNotAllowed(fd, &server, *location);
   if (request.body().size() > server.effectiveClientMaxBodySize(location))
     return queueError(fd, &server, 413);
   if (location->hasRedirect())
@@ -297,7 +445,8 @@ void WebServer::queueResponse(int fd, HttpResponse response) {
   _poller.modFd(fd, EPOLLOUT | EPOLLRDHUP);
 }
 
-void WebServer::queueError(int fd, const ServerConfig *server, int statusCode) {
+HttpResponse WebServer::makeErrorResponse(const ServerConfig *server,
+                                           int statusCode) {
   HttpResponse response = HttpResponse::error(statusCode);
 
   if (server) {
@@ -311,11 +460,16 @@ void WebServer::queueError(int fd, const ServerConfig *server, int statusCode) {
     }
   }
 
-  queueResponse(fd, std::move(response));
+  return response;
 }
 
-void WebServer::queueMethodNotAllowed(int fd, const LocationConfig &location) {
-  HttpResponse response = HttpResponse::error(405);
+void WebServer::queueError(int fd, const ServerConfig *server, int statusCode) {
+  queueResponse(fd, makeErrorResponse(server, statusCode));
+}
+
+void WebServer::queueMethodNotAllowed(int fd, const ServerConfig *server,
+                                      const LocationConfig &location) {
+  HttpResponse response = makeErrorResponse(server, 405);
   response.setHeader("Allow", allowHeaderValue(location));
   queueResponse(fd, std::move(response));
 }
@@ -376,7 +530,7 @@ void WebServer::handleUpload(int fd, const ServerConfig &server,
                              const LocationConfig &location) {
   const HttpRequest &request = _connectionFds.at(fd).connection.getRequest();
   if (!location.uploadsEnabled())
-    return queueMethodNotAllowed(fd, location);
+    return queueMethodNotAllowed(fd, &server, location);
 
   std::error_code ec;
   const std::filesystem::path uploadRoot =
@@ -385,44 +539,100 @@ void WebServer::handleUpload(int fd, const ServerConfig &server,
   if (ec)
     return queueError(fd, &server, 500);
 
-  std::string filename;
-  if (auto contentDisposition = request.header("Content-Disposition"))
-    filename = filenameFromContentDisposition(*contentDisposition);
-  filename = sanitizeFilename(std::move(filename));
+  std::vector<std::string> savedNames;
+  std::vector<std::filesystem::path> writtenPaths;
 
-  std::filesystem::path target;
-  bool foundName = false;
-  for (int i = 0; i < 1000; ++i) {
-    std::string candidate = filename;
-    if (i > 0) {
-      const std::filesystem::path p(filename);
-      candidate =
-          p.stem().string() + "-" + std::to_string(i) + p.extension().string();
-    }
-    target = canonicalOrNormalized(uploadRoot / candidate);
-    if (!pathStartsWith(target, uploadRoot))
-      return queueError(fd, &server, 403);
-    if (!std::filesystem::exists(target, ec)) {
-      filename = candidate;
-      foundName = true;
-      break;
+  bool isMultipart = false;
+  std::string boundary;
+  if (auto contentType = request.header("Content-Type")) {
+    std::string lowerCt;
+    lowerCt.reserve(contentType->size());
+    for (unsigned char c : *contentType)
+      lowerCt.push_back(static_cast<char>(std::tolower(c)));
+    if (lowerCt.find("multipart/form-data") != std::string::npos) {
+      if (auto maybeBoundary = extractBoundary(*contentType)) {
+        isMultipart = true;
+        boundary = std::move(*maybeBoundary);
+      }
     }
   }
-  if (!foundName)
-    return queueError(fd, &server, 500);
 
-  std::ofstream file(target, std::ios::binary);
-  if (!file)
-    return queueError(fd, &server, 500);
-  std::string_view body = request.body();
-  file.write(body.data(), static_cast<std::streamsize>(body.size()));
-  if (!file)
-    return queueError(fd, &server, 500);
+  if (isMultipart) {
+    auto parts = parseMultipartParts(request.body(), boundary);
+    for (const auto &[partHeaders, partBody] : parts) {
+      std::string filename = partFilename(partHeaders);
+      if (filename.empty())
+        continue;
+      filename = sanitizeFilename(std::move(filename));
+
+      std::string chosenName;
+      auto target = resolveUniqueTarget(uploadRoot, filename, chosenName);
+      if (!target) {
+        cleanupUploads(writtenPaths);
+        return queueError(fd, &server, 500);
+      }
+      if (!pathStartsWith(*target, uploadRoot)) {
+        cleanupUploads(writtenPaths);
+        return queueError(fd, &server, 403);
+      }
+
+      std::ofstream file(*target, std::ios::binary);
+      if (!file) {
+        cleanupUploads(writtenPaths);
+        return queueError(fd, &server, 500);
+      }
+      file.write(partBody.data(), static_cast<std::streamsize>(partBody.size()));
+      if (!file) {
+        cleanupUploads(writtenPaths);
+        std::filesystem::remove(*target, ec);
+        return queueError(fd, &server, 500);
+      }
+      savedNames.push_back(chosenName);
+      writtenPaths.push_back(*target);
+    }
+    if (savedNames.empty())
+      return queueError(fd, &server, 400);
+  } else {
+    std::string filename;
+    if (auto contentDisposition = request.header("Content-Disposition"))
+      filename = filenameFromContentDisposition(*contentDisposition);
+    filename = sanitizeFilename(std::move(filename));
+
+    std::string chosenName;
+    auto target = resolveUniqueTarget(uploadRoot, filename, chosenName);
+    if (!target)
+      return queueError(fd, &server, 500);
+    if (!pathStartsWith(*target, uploadRoot))
+      return queueError(fd, &server, 403);
+
+    std::ofstream file(*target, std::ios::binary);
+    if (!file)
+      return queueError(fd, &server, 500);
+    std::string_view body = request.body();
+    file.write(body.data(), static_cast<std::streamsize>(body.size()));
+    if (!file)
+      return queueError(fd, &server, 500);
+
+    savedNames.push_back(chosenName);
+  }
 
   HttpResponse response;
   response.setStatus(201);
-  response.setHeader("Location", locationForUpload(request.path(), filename));
-  response.setBody("Created\n", "text/plain; charset=utf-8");
+  if (savedNames.size() == 1) {
+    response.setHeader("Location",
+                        locationForUpload(request.path(), savedNames[0]));
+  } else {
+    std::string loc(request.path());
+    if (!loc.ends_with('/'))
+      loc += '/';
+    response.setHeader("Location", loc);
+  }
+
+  std::string bodyText = "Created " + std::to_string(savedNames.size()) +
+                          " file" + (savedNames.size() == 1 ? "\n" : "s\n");
+  for (const std::string &name : savedNames)
+    bodyText += name + "\n";
+  response.setBody(bodyText, "text/plain; charset=utf-8");
   queueResponse(fd, std::move(response));
 }
 

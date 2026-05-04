@@ -7,7 +7,9 @@
 
 #include <cerrno>
 #include <cstddef>
+#include <cstdlib>
 #include <iostream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -15,6 +17,27 @@
 #include <sys/types.h>
 
 namespace webserv {
+
+namespace {
+
+bool rawDebugEnabled() {
+  const char *value = std::getenv("WEBSERV_DEBUG_RAW");
+  return value && std::string_view(value) == "1";
+}
+
+void logRaw(const char *label, int fd, const PeerAddress &peer,
+            std::string_view data) {
+  if (!rawDebugEnabled())
+    return;
+  std::cout << '[' << label << " fd=" << fd << ' ' << peer.ip << ':'
+            << peer.port << " bytes=" << data.size() << "]\n"
+            << data;
+  if (!data.empty() && data.back() != '\n')
+    std::cout << '\n';
+  std::cout << std::flush;
+}
+
+} // namespace
 
 Connection::Connection(UniqueFd clientFd, ConnectionOptions options)
     : _fd(std::move(clientFd)), _options(options),
@@ -118,6 +141,7 @@ void Connection::queueResponse(HttpResponse response) {
     response.setConnectionPreference(ConnectionPreference::Close);
   _closeAfterWrite = response.shouldCloseConnection();
   _writeBuffer = response.serialize();
+  logRaw("RawResponse", _fd.get(), _peerAddress, _writeBuffer);
   _state = ConnectionState::WritingResponse;
 }
 
@@ -157,7 +181,10 @@ IoResult Connection::readFromSocket() {
   ssize_t bytesRead = recv(_fd.get(), buffer.data(), buffer.size(), 0);
 
   if (bytesRead > 0) {
-    _readBuffer.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+    const std::size_t n = static_cast<std::size_t>(bytesRead);
+    _readBuffer.append(buffer.data(), n);
+    logRaw("RawRequest", _fd.get(), _peerAddress,
+           std::string_view(buffer.data(), n));
     return IoResult::Continue;
   }
   if (bytesRead == 0)

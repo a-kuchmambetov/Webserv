@@ -1,0 +1,12 @@
+$kind: http-request
+name: GET /upload
+url: "{{server.URL}}/upload"
+method: GET
+settings:
+  protocolVersion: http1
+  disabledSystemHeaders:
+    - user-agent
+    - accept
+    - accept-encoding
+examples: .resources/GET -upload.resources/examples
+order: 1777628509347

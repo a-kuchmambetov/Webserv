@@ -1,0 +1,27 @@
+$kind: http-request
+name: GET /upload
+url: "{{server.URL}}/upload"
+method: POST
+body:
+  type: formdata
+  content:
+    - type: file
+      key: file1
+      src:
+        - /home/dev/Work/webserv/docker-run.sh
+      description: ""
+      disabled: false
+    - type: file
+      key: file2
+      src:
+        - /home/dev/Work/webserv/docker-build.sh
+      description: ""
+      disabled: false
+settings:
+  protocolVersion: http1
+  disabledSystemHeaders:
+    - user-agent
+    - accept
+    - accept-encoding
+examples: .resources/GET -upload.resources/examples
+order: 3496703168777946

@@ -64,8 +64,11 @@ private:
                     const HttpRequest &request) const;
   void queueResponse(int fd, HttpResponse response);
   void queueError(int fd, const ServerConfig *server, int statusCode);
-  void queueMethodNotAllowed(int fd, const LocationConfig &location);
+  void queueMethodNotAllowed(int fd, const ServerConfig *server,
+                             const LocationConfig &location);
   void queueRedirect(int fd, const LocationConfig &location);
+  [[nodiscard]] HttpResponse makeErrorResponse(const ServerConfig *server,
+                                                int statusCode);
   [[nodiscard]] bool isCgiRequest(const HttpRequest &request,
                                   const LocationConfig &location) const;
   void startCgi(int fd, const ServerConfig &server,

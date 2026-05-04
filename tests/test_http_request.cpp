@@ -440,6 +440,30 @@ TEST(HttpRequestTest, EmptyHeaderValueAllowed) {
   EXPECT_TRUE(req.isComplete());
 }
 
+TEST(HttpRequestTest, HostWithPort) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    "Host: 127.0.0.1:8080\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_TRUE(req.isComplete());
+  EXPECT_EQ(req.host(), "127.0.0.1:8080");
+}
+
+TEST(HttpRequestTest, HeaderValueWithMultipleColons) {
+  std::string raw = "GET / HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "X-Test: a:b:c\r\n"
+                    "\r\n";
+
+  webserv::HttpRequest req;
+  req.append(raw);
+
+  EXPECT_TRUE(req.isComplete());
+}
+
 TEST(HttpRequestTest, NegativeContentLength) {
   std::string raw = "POST / HTTP/1.1\r\n"
                     "Host: localhost\r\n"

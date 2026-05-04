@@ -1,0 +1,13 @@
+$kind: http-request
+name: GET /cgi-bin/
+url: "{{server.URL}}/cgi-bin/calc_sum.py?a=10&b=20"
+method: GET
+headers:
+  Connection: close
+queryParams:
+  a: "10"
+  b: "20"
+settings:
+  disabledSystemHeaders:
+    - connection
+order: 1777928502458

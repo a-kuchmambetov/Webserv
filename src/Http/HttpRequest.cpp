@@ -310,9 +310,6 @@ bool HttpRequest::parseHeaders() {
     if (line[0] == ' ' || line[0] == '\t')
       return (setError(400), false);
 
-    if (std::count(line.begin(), line.end(), ':') != 1)
-      return (setError(400), false);
-
     std::size_t colonPos = line.find(':');
     if (colonPos == std::string::npos || colonPos == 0)
       return (setError(400), false);
