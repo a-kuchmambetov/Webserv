@@ -1,13 +1,10 @@
 #include "HttpRequest.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
-#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
 #include <utility>
 
 namespace webserv {
@@ -700,7 +697,6 @@ void HttpRequest::reset() noexcept {
   _errorStatus = 0;
 
   _rawBuffer.clear();
-  _headerEndPos = std::string::npos; // not using it
   _bodyBytesExpected = 0;
   _bodyBytesReceived = 0;
   _currentChunkSize = 0;
