@@ -28,6 +28,11 @@ enum class RequestParseState : std::uint8_t {
   Error,
 };
 
+enum class DecodeMode : std::uint8_t {
+  Path,
+  Query
+};
+
 enum class BodyTransferMode : std::uint8_t {
   None,
   ContentLength,
@@ -45,6 +50,15 @@ enum class IoResult : std::uint8_t {
   Complete,
   Closed,
   Error,
+};
+
+enum class FdType : std::uint8_t {
+  Listener,
+  Client,
+  CgiStdIn,
+  CgiStdOut,
+  Signal,
+  Unknown,
 };
 
 enum class ConnectionState : std::uint8_t {

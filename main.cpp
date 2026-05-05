@@ -1,149 +1,44 @@
+#include "WebServer.hpp"
+
+#include <filesystem>
 #include <iostream>
-#include <string>
+#include <stdexcept>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
+namespace {
 
-static int parsePositiveInt(const std::string &s) {
-  int value = 0;
-
-  for (const char c : s) {
-    if (c < '0' || c > '9')
-      return -1;
-
-    value = value * 10 + (c - '0');
-  }
-
-  return value;
+bool hasConfExtension(const std::filesystem::path &configPath) {
+  return configPath.extension() == ".conf";
 }
 
-static int parseContentLength(const std::string &headers) {
-  const std::string key = "Content-Length:";
-  std::string::size_type pos = headers.find(key);
-  if (pos == std::string::npos)
-    return 0;
-
-  pos += key.length();
-
-  while (pos < headers.size() && (headers[pos] == ' ' || headers[pos] == '\t'))
-    ++pos;
-
-  std::string number;
-  while (pos < headers.size() && headers[pos] >= '0' && headers[pos] <= '9') {
-    number += headers[pos];
-    ++pos;
-  }
-
-  if (number.empty())
-    return 0;
-
-  return parsePositiveInt(number);
+void printUsage(const char *programName) {
+  std::cerr << "Usage: " << programName << " [config.conf]\n";
 }
 
-static std::string receiveHttpRequest(const int clientFd) {
-  std::string request;
-  char buffer[4096];
+} // namespace
 
-  std::string::size_type headerEnd = std::string::npos;
-  int contentLength = -1;
-
-  while (true) {
-    const ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
-    if (bytesRead <= 0)
-      break;
-
-    request.append(buffer, bytesRead);
-
-    if (headerEnd == std::string::npos) {
-      headerEnd = request.find("\r\n\r\n");
-      if (headerEnd != std::string::npos) {
-        std::string headers = request.substr(0, headerEnd + 4);
-        contentLength = parseContentLength(headers);
-      }
-    }
-
-    if (headerEnd != std::string::npos && contentLength >= 0) {
-      if (request.size() - headerEnd + 4 >=
-          static_cast<std::string::size_type>(contentLength))
-        break;
-    }
-  }
-
-  return request;
-}
-
-int main() {
-  const int serverFd = socket(AF_INET, SOCK_STREAM, 0);
-  if (serverFd < 0) {
-    std::cerr << "socket() failed\n";
+int main(int argc, char **argv) {
+  if (argc > 2) {
+    printUsage(argv[0]);
     return 1;
   }
 
-  constexpr int opt = 1;
-  if (setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-    std::cerr << "setsockopt() failed\n";
-    close(serverFd);
+  const std::filesystem::path configPath =
+      (argc == 2) ? std::filesystem::path(argv[1])
+                  : std::filesystem::path("server.conf");
+
+  if (!hasConfExtension(configPath)) {
+    std::cerr << "Error: config file must have .conf extension\n";
+    printUsage(argv[0]);
     return 1;
   }
 
-  sockaddr_in serverAddr = sockaddr_in();
-  serverAddr.sin_family = AF_INET;
-  serverAddr.sin_port = htons(8080);
-  serverAddr.sin_addr.s_addr = INADDR_ANY;
+  try {
+    webserv::WebServer server(configPath);
 
-  if (bind(serverFd, reinterpret_cast<struct sockaddr *>(&serverAddr),
-           sizeof(serverAddr)) < 0) {
-    std::cerr << "bind() failed\n";
-    close(serverFd);
+    server.run();
+  } catch (const std::runtime_error &e) {
+    std::cerr << "Error: " << e.what() << '\n';
     return 1;
   }
-
-  if (listen(serverFd, 10) < 0) {
-    std::cerr << "listen() failed\n";
-    close(serverFd);
-    return 1;
-  }
-
-  std::cout << "Listening on 0.0.0.0:8080\n";
-  std::cout << "Send POST requests to http://127.0.0.1:8080/\n\n";
-
-  while (true) {
-    sockaddr_in clientAddr = sockaddr_in();
-    socklen_t clientLen = sizeof(clientAddr);
-
-    const int clientFd = accept(
-        serverFd, reinterpret_cast<struct sockaddr *>(&clientAddr), &clientLen);
-    if (clientFd < 0) {
-      std::cerr << "accept() failed\n";
-      continue;
-    }
-
-    std::cout << "Client connected: " << inet_ntoa(clientAddr.sin_addr) << ":"
-              << ntohs(clientAddr.sin_port) << "\n";
-
-    std::string request = receiveHttpRequest(clientFd);
-
-    const std::string::size_type headerEnd = request.find("\r\n\r\n");
-    if (headerEnd != std::string::npos) {
-      std::string body = request.substr(headerEnd + 4);
-
-      std::cout << "----- POST BODY -----\n";
-      std::cout << body << "\n";
-      std::cout << "---------------------\n\n";
-    } else {
-      std::cout << "Could not parse HTTP request\n";
-    }
-
-    std::string response = "HTTP/1.1 204 No Content\r\n"
-                           "Connection: close\r\n"
-                           "\r\n";
-
-    send(clientFd, response.c_str(), response.size(), 0);
-    close(clientFd);
-  }
-
-  close(serverFd);
   return 0;
 }

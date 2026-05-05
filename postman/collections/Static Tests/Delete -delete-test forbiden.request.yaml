@@ -1,0 +1,9 @@
+$kind: http-request
+name: Delete /delete-test forbiden
+url: "{{server.URL}}/delete-test"
+method: DELETE
+settings:
+  protocolVersion: http1
+  disabledSystemHeaders: []
+examples: .resources/Delete -delete-test forbiden.resources/examples
+order: 2258265321780144

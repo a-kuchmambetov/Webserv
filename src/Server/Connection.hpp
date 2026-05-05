@@ -3,6 +3,7 @@
 #include "HttpRequest.hpp"
 #include "HttpResponse.hpp"
 #include "HttpTypes.hpp"
+#include "UniqueFd.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -21,14 +22,15 @@ struct PeerAddress {
 };
 
 struct ConnectionOptions {
-  std::chrono::seconds idleTimeout{30};
+  std::chrono::seconds idleTimeout{15};
   std::size_t readChunkSize{16 * 1024};
   std::size_t maxRequestBodySize{0};
+  std::size_t maxRequestHeaderSize{8 * 1024};
 };
 
 class Connection {
 public:
-  explicit Connection(int clientFd, ConnectionOptions options = {});
+  explicit Connection(UniqueFd clientFd, ConnectionOptions options = {});
   ~Connection();
 
   Connection(const Connection &) = delete;
@@ -36,12 +38,12 @@ public:
   Connection(Connection &&other) noexcept;
   Connection &operator=(Connection &&other) noexcept;
 
-  [[nodiscard]] int fd() const noexcept;
-  [[nodiscard]] ConnectionState state() const noexcept;
-  [[nodiscard]] const ConnectionOptions &options() const noexcept;
+  [[nodiscard]] int getFd() const noexcept;
+  [[nodiscard]] ConnectionState getState() const noexcept;
+  [[nodiscard]] const ConnectionOptions &getOptions() const noexcept;
 
   void setPeerAddress(std::string ip, std::uint16_t port);
-  [[nodiscard]] const PeerAddress &peerAddress() const noexcept;
+  [[nodiscard]] const PeerAddress &getPeerAddress() const noexcept;
 
   void markActivity(std::chrono::steady_clock::time_point now =
                         std::chrono::steady_clock::now()) noexcept;
@@ -57,8 +59,8 @@ public:
   [[nodiscard]] IoResult onReadable();
   [[nodiscard]] IoResult onWritable();
 
-  [[nodiscard]] HttpRequest &request() noexcept;
-  [[nodiscard]] const HttpRequest &request() const noexcept;
+  [[nodiscard]] HttpRequest &getRequest() noexcept;
+  [[nodiscard]] const HttpRequest &getRequest() const noexcept;
   [[nodiscard]] bool hasCompleteRequest() const noexcept;
 
   void queueResponse(HttpResponse response);
@@ -66,8 +68,8 @@ public:
 
   void attachCgi(std::unique_ptr<CgiRequest> cgiRequest) noexcept;
   [[nodiscard]] bool hasActiveCgi() const noexcept;
-  [[nodiscard]] CgiRequest *activeCgi() noexcept;
-  [[nodiscard]] const CgiRequest *activeCgi() const noexcept;
+  [[nodiscard]] CgiRequest *getActiveCgi() noexcept;
+  [[nodiscard]] const CgiRequest *getActiveCgi() const noexcept;
   [[nodiscard]] std::unique_ptr<CgiRequest> detachCgi() noexcept;
 
   void prepareForNextRequest();
@@ -78,10 +80,10 @@ private:
   [[nodiscard]] IoResult readFromSocket();
   [[nodiscard]] IoResult writeToSocket();
 
-  int _fd{-1};
+  UniqueFd _fd;
   ConnectionOptions _options;
   ConnectionState _state{ConnectionState::ReadingRequest};
-  bool _closeAfterWrite{false};
+  bool _closeAfterWrite{true};
 
   PeerAddress _peerAddress;
   std::chrono::steady_clock::time_point _lastActivity{};

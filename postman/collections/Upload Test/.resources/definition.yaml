@@ -1,0 +1,6 @@
+$kind: collection
+id: 88fF09D3BD332756c4cD362b
+name: Upload Test
+variables:
+  server.IP: ""
+  server.URL: ""

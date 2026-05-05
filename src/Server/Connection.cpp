@@ -1,0 +1,242 @@
+#include "Connection.hpp"
+#include "CgiRequest.hpp"
+#include "HttpRequest.hpp"
+#include "HttpResponse.hpp"
+#include "HttpTypes.hpp"
+#include "UniqueFd.hpp"
+
+#include <cerrno>
+#include <cstddef>
+#include <cstdlib>
+#include <iostream>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <sys/socket.h>
+#include <sys/types.h>
+
+namespace webserv {
+
+namespace {
+
+bool rawDebugEnabled() {
+  const char *value = std::getenv("WEBSERV_DEBUG_RAW");
+  return value && std::string_view(value) == "1";
+}
+
+void logRaw(const char *label, int fd, const PeerAddress &peer,
+            std::string_view data) {
+  if (!rawDebugEnabled())
+    return;
+  std::cout << '[' << label << " fd=" << fd << ' ' << peer.ip << ':'
+            << peer.port << " bytes=" << data.size() << "]\n"
+            << data;
+  if (!data.empty() && data.back() != '\n')
+    std::cout << '\n';
+  std::cout << std::flush;
+}
+
+} // namespace
+
+Connection::Connection(UniqueFd clientFd, ConnectionOptions options)
+    : _fd(std::move(clientFd)), _options(options),
+      _lastActivity(std::chrono::steady_clock::now()) {}
+
+Connection::~Connection() = default;
+
+Connection::Connection(Connection &&other) noexcept = default;
+
+Connection &Connection::operator=(Connection &&other) noexcept = default;
+
+int Connection::getFd() const noexcept { return _fd.get(); }
+
+ConnectionState Connection::getState() const noexcept { return _state; }
+
+const ConnectionOptions &Connection::getOptions() const noexcept {
+  return _options;
+}
+
+void Connection::setPeerAddress(std::string ip, std::uint16_t port) {
+  _peerAddress = {ip, port};
+}
+
+const PeerAddress &Connection::getPeerAddress() const noexcept {
+  return _peerAddress;
+}
+
+void Connection::markActivity(
+    std::chrono::steady_clock::time_point now) noexcept {
+  _lastActivity = now;
+}
+
+std::chrono::steady_clock::time_point
+Connection::lastActivity() const noexcept {
+  return _lastActivity;
+}
+
+bool Connection::isTimedOut(
+    std::chrono::steady_clock::time_point now) const noexcept {
+  return now - _lastActivity >= _options.idleTimeout;
+}
+
+bool Connection::wantsRead() const noexcept {
+  return _state == ConnectionState::ReadingRequest;
+}
+
+bool Connection::wantsWrite() const noexcept {
+  return _state == ConnectionState::WritingResponse && !_writeBuffer.empty();
+}
+
+bool Connection::shouldClose() const noexcept { return _closeAfterWrite; }
+
+IoResult Connection::onReadable() {
+  if (_state != ConnectionState::ReadingRequest)
+    return IoResult::Continue;
+
+  IoResult readResult = readFromSocket();
+  if (readResult != IoResult::Continue)
+    return readResult;
+
+  if (_options.maxRequestBodySize > 0)
+    _request.setMaxBodySize(_options.maxRequestBodySize);
+  if (_options.maxRequestHeaderSize > 0)
+    _request.setMaxHeaderSize(
+        _options.maxRequestHeaderSize); // IMPORTANT: waiting for implementation
+
+  ParseOutcome outcome = _request.append(_readBuffer);
+  _readBuffer.clear();
+
+  switch (outcome) {
+  case ParseOutcome::NeedMoreData:
+    return IoResult::Continue;
+  case ParseOutcome::Complete:
+    _requestReady = true;
+    _state = ConnectionState::ProcessingRequest;
+    return IoResult::Complete;
+  case ParseOutcome::Error:
+    return IoResult::Error;
+  }
+  return IoResult::Error;
+}
+
+IoResult Connection::onWritable() {
+  if (_state != ConnectionState::WritingResponse)
+    return IoResult::Continue;
+  return writeToSocket();
+}
+
+HttpRequest &Connection::getRequest() noexcept { return _request; }
+
+const HttpRequest &Connection::getRequest() const noexcept { return _request; }
+
+bool Connection::hasCompleteRequest() const noexcept { return _requestReady; }
+
+void Connection::appendResponseBytes(std::string_view bytes) {
+  _writeBuffer.append(bytes);
+}
+
+void Connection::queueResponse(HttpResponse response) {
+  if (!_request.keepAliveRequested())
+    response.setConnectionPreference(ConnectionPreference::Close);
+  _closeAfterWrite = response.shouldCloseConnection();
+  _writeBuffer = response.serialize();
+  logRaw("RawResponse", _fd.get(), _peerAddress, _writeBuffer);
+  _state = ConnectionState::WritingResponse;
+}
+
+void Connection::attachCgi(std::unique_ptr<CgiRequest> cgiRequest) noexcept {
+  _activeCgi = std::move(cgiRequest);
+  _state = ConnectionState::RunningCgi;
+}
+
+bool Connection::hasActiveCgi() const noexcept {
+  return static_cast<bool>(_activeCgi);
+}
+
+CgiRequest *Connection::getActiveCgi() noexcept { return _activeCgi.get(); }
+
+const CgiRequest *Connection::getActiveCgi() const noexcept {
+  return _activeCgi.get();
+}
+
+std::unique_ptr<CgiRequest> Connection::detachCgi() noexcept {
+  return std::move(_activeCgi);
+}
+
+void Connection::prepareForNextRequest() {
+  _activeCgi.reset();
+  _request.reset();
+  _requestReady = false;
+  _readBuffer.clear();
+  _writeBuffer.clear();
+  _closeAfterWrite = false;
+  _state = ConnectionState::ReadingRequest;
+}
+
+void Connection::markForClose() noexcept { _closeAfterWrite = true; }
+
+IoResult Connection::readFromSocket() {
+  std::vector<char> buffer(_options.readChunkSize);
+  ssize_t bytesRead = recv(_fd.get(), buffer.data(), buffer.size(), 0);
+
+  if (bytesRead > 0) {
+    const std::size_t n = static_cast<std::size_t>(bytesRead);
+    _readBuffer.append(buffer.data(), n);
+    logRaw("RawRequest", _fd.get(), _peerAddress,
+           std::string_view(buffer.data(), n));
+    return IoResult::Continue;
+  }
+  if (bytesRead == 0)
+    return IoResult::Closed;
+  if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+    return IoResult::Continue;
+  return IoResult::Error;
+}
+
+IoResult Connection::writeToSocket() {
+  while (!_writeBuffer.empty()) {
+    ssize_t bytesSent =
+        send(_fd.get(), _writeBuffer.data(), _writeBuffer.size(), MSG_NOSIGNAL);
+
+    if (bytesSent > 0) {
+      _writeBuffer.erase(0, static_cast<std::size_t>(bytesSent));
+      markActivity();
+      continue;
+    }
+    if (bytesSent == 0)
+      return IoResult::Continue;
+    if (errno == EINTR)
+      continue;
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      return IoResult::Continue;
+    return IoResult::Error;
+  }
+
+  if (_closeAfterWrite) {
+    _state = ConnectionState::Closed;
+    return IoResult::Closed;
+  }
+
+  prepareForNextRequest();
+  return IoResult::Complete;
+}
+
+void Connection::close() noexcept {
+
+  const ConnectionState state = getState();
+  const PeerAddress &peer = getPeerAddress();
+
+  if (state == ConnectionState::ReadingRequest) {
+    std::cout << "[Server] : client disconnected - " << peer.ip << ":"
+              << peer.port << std::endl;
+  } else {
+    std::cout << "[Server] : client disconnected by server - " << peer.ip << ":"
+              << peer.port << std::endl;
+  }
+
+  _activeCgi.reset();
+  _state = ConnectionState::Closed;
+}
+
+} // namespace webserv

@@ -1,0 +1,9 @@
+$kind: http-request
+name: Delete /delete-test
+url: "{{server.URL}}/delete-test/trash copy 11"
+method: DELETE
+settings:
+  protocolVersion: http1
+  disabledSystemHeaders: []
+examples: .resources/Delete -delete-test.resources/examples
+order: 2256311538060253

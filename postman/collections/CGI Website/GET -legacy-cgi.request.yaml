@@ -1,0 +1,8 @@
+$kind: http-request
+name: GET /legacy-cgi
+url: "{{server.URL}}/legacy-cgi"
+method: GET
+body:
+  type: json
+  content: a=2&b=5
+order: 4159733613181831

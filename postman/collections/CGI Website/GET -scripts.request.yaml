@@ -1,0 +1,5 @@
+$kind: http-request
+name: GET /scripts
+url: "{{server.URL}}/scripts/script.py"
+method: GET
+order: 4018968952485182
